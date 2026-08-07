@@ -5,6 +5,19 @@ export function catColor(i) {
   return 'oklch(0.62 0.13 ' + HUES[i % HUES.length] + ')';
 }
 
+/**
+ * Fixed accent used for every quest-related icon/pill regardless of theme or which quest it is
+ * (the design spec uses this one constant everywhere a quest needs a color, as distinct from a
+ * budget category's own per-category `catColor`).
+ */
+export const QUEST_COLOR = 'oklch(0.62 0.13 300)';
+
+/** Fixed gold used for "completed"/"redeemed" quest states — rings, badges, redemption rows. */
+export const GOLD_COLOR = 'oklch(0.8 0.13 85)';
+
+/** Neutral fallback for a transaction whose category/quest/income-source has since been deleted. */
+export const DELETED_REF_COLOR = 'oklch(0.5 0.02 265)';
+
 export function semanticColors(theme) {
   if (theme === 'vibrant') {
     return {

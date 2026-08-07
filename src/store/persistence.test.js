@@ -13,7 +13,7 @@ describe('freshState', () => {
     expect(s.onboarded).toBe(false);
     expect(s.categories).toEqual([]);
     expect(s.transactions).toEqual([]);
-    expect(s.quests).toEqual([]);
+    expect(s.budgetAllocations).toEqual([]);
   });
 });
 
@@ -28,7 +28,7 @@ describe('loadState', () => {
   });
 
   it('round-trips a saved state', () => {
-    const s = { ...freshState(), theme: 'vibrant', income: 50000 };
+    const s = { ...freshState(), theme: 'vibrant', categories: [{ id: 'c1', name: 'Housing' }] };
     saveState(s);
     expect(loadState()).toEqual(s);
   });
