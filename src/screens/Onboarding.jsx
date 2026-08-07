@@ -4,8 +4,8 @@ import { useTheme } from '../theme/useTheme.js';
 import { seedDefaultsIfNeeded, GROUPS_ORDER, GROUP_LABELS } from '../domain/categories.js';
 import { buildOnboardingRows, allocationTotals, saveAllocations } from '../domain/allocations.js';
 import { formatINR, groupIndianDigits, currentMonthKey } from '../domain/format.js';
-import { iconFor, iconBoxBg, iconImgUrl, iconSize } from '../theme/icons.js';
 import { Fab } from '../components/Fab.jsx';
+import { CategoryIcon } from '../components/CategoryIcon.jsx';
 
 export function Onboarding({ onFinish, onOpenAddCategory }) {
   const { state, setState } = useStore();
@@ -128,8 +128,6 @@ export function Onboarding({ onFinish, onOpenAddCategory }) {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {grp.categories.map((cat) => {
-                const iconBg = iconBoxBg('oklch(0.62 0.13 245)', iconStyle);
-                const imgUrl = iconImgUrl(cat.icon, iconStyle);
                 return (
                   <div
                     key={cat.categoryId}
@@ -138,15 +136,7 @@ export function Onboarding({ onFinish, onOpenAddCategory }) {
                       border: T.cardBorder, borderRadius: 14, padding: '10px 12px',
                     }}
                   >
-                    <div style={{ width: 34, height: 34, borderRadius: 10, background: iconBg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {imgUrl ? (
-                        <div style={{ width: iconSize(16, iconStyle), height: iconSize(16, iconStyle), backgroundImage: `url(${imgUrl})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }} />
-                      ) : (
-                        <span className="material-symbols-outlined" style={{ fontSize: iconSize(16, iconStyle), color: 'oklch(0.15 0.02 265)' }}>
-                          {iconFor(cat.icon, iconStyle)}
-                        </span>
-                      )}
-                    </div>
+                    <CategoryIcon icon={cat.icon} color={cat.color} iconStyle={iconStyle} size={34} radius={10} glyphBase={16} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: T.text }}>
                         {cat.name}

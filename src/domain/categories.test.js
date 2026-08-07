@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, GROUP_LABELS, GROUPS_ORDER, seedDefaultsIfNeeded } from './categories.js';
+import { catColor } from '../theme/tokens.js';
 
 describe('DEFAULT_EXPENSE_CATEGORIES', () => {
   it('has exactly the 17 categories from the Android app, in order, summing to 100%', () => {
@@ -72,5 +73,26 @@ describe('seedDefaultsIfNeeded', () => {
     const existing = { categories: [{ id: 'q1', name: 'Trip', icon: 'flag', type: 'quest', group: 'savings', archived: false }], incomeCategories: [] };
     const patch = seedDefaultsIfNeeded(existing);
     expect(patch.categories).toHaveLength(18); // 1 existing quest + 17 new budget
+  });
+
+  it('assigns each seeded category a persisted, distinct color (no Android schema equivalent — a design-spec-only field), continuing the index across budget then income categories', () => {
+    const patch = seedDefaultsIfNeeded({ categories: [], incomeCategories: [] });
+    expect(patch.categories[0].color).toBe(catColor(0));
+    expect(patch.categories[16].color).toBe(catColor(16));
+    expect(patch.incomeCategories[0].color).toBe(catColor(17));
+    expect(patch.incomeCategories[2].color).toBe(catColor(19));
+    // colors are assigned once at creation and stored — not recomputed from array position later
+    expect(patch.categories.every((c) => typeof c.color === 'string' && c.color.startsWith('oklch('))).toBe(true);
+  });
+
+  it('continues the color index from existing categories, so re-seeding onto a non-empty state never repeats a color already in use', () => {
+    const existing = {
+      categories: Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, name: `Cat${i}`, icon: 'category', type: 'budget', group: 'needs', archived: false, color: catColor(i) })),
+      incomeCategories: [],
+    };
+    // Force the seed by making it look like no BUDGET category exists yet is impossible here since
+    // one does — instead verify the income-category branch (which does still run) picks up after 5.
+    const patch = seedDefaultsIfNeeded(existing);
+    expect(patch.incomeCategories[0].color).toBe(catColor(5));
   });
 });

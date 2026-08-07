@@ -1,3 +1,5 @@
+import { catColor } from '../theme/tokens.js';
+
 /**
  * The 17 default categories and their percentages, ported verbatim from the Android app's
  * DefaultCategories.kt (sourced there from the 50-30-20 rule, Dave Ramsey's category-percentage
@@ -41,10 +43,18 @@ export function makeId() {
  * if no BUDGET-type category exists yet (quest-only state still gets seeded), and the default
  * income categories only if none exist at all. Idempotent — a no-op key is simply absent from the
  * returned patch, so `setState(patch)` merges cleanly whichever combination fired.
+ *
+ * `color` has no Android counterpart (CategoryEntity has no color column — it's a design-spec-only
+ * concept for tinting a category's icon box in "flat" icon style) so it's assigned here, once, at
+ * creation time via `catColor(index)` — continuing the index across budget then income categories,
+ * matching the design spec's own buildCategories()/buildIncomeCats() — and persisted on the
+ * category/income-category object rather than recomputed from display position, since sort order
+ * (e.g. onboarding's alphabetical rows) must not change which color a category has.
  */
 export function seedDefaultsIfNeeded(state) {
   const patch = {};
   const hasBudgetCategory = state.categories.some((c) => c.type === 'budget');
+  let nextColorIndex = state.categories.length + state.incomeCategories.length;
   if (!hasBudgetCategory) {
     const seeded = DEFAULT_EXPENSE_CATEGORIES.map((seed) => ({
       id: makeId(),
@@ -53,6 +63,7 @@ export function seedDefaultsIfNeeded(state) {
       type: 'budget',
       group: seed.group,
       archived: false,
+      color: catColor(nextColorIndex++),
     }));
     patch.categories = [...state.categories, ...seeded];
   }
@@ -61,6 +72,7 @@ export function seedDefaultsIfNeeded(state) {
       id: makeId(),
       name: seed.name,
       icon: seed.icon,
+      color: catColor(nextColorIndex++),
     }));
   }
   return patch;

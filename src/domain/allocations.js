@@ -21,6 +21,7 @@ export function buildOnboardingRows(categories, budgetAllocations, monthKey) {
       categoryId: c.id,
       name: c.name,
       icon: c.icon,
+      color: c.color,
       group: c.group,
       percentage: allocationByCategoryId.get(c.id)?.percentage ?? DEFAULT_PERCENTAGE_BY_NAME.get(c.name) ?? 0,
     }))
