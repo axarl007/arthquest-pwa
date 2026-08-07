@@ -1,0 +1,119 @@
+/* Only the "latin" + "devanagari" subsets are imported (not vietnamese/
+   latin-ext/cyrillic-ext) — the app is Latin-script UI with ₹ amounts, and
+   the ₹ glyph (U+20B9) lives in the devanagari subset for Baloo 2, the
+   weight used for money figures. Keeps the offline-cached font payload
+   small without dropping any glyph the UI actually uses. */
+@import '@fontsource/baloo-2/latin-500.css';
+@import '@fontsource/baloo-2/latin-600.css';
+@import '@fontsource/baloo-2/latin-700.css';
+@import '@fontsource/baloo-2/latin-800.css';
+@import '@fontsource/baloo-2/devanagari-500.css';
+@import '@fontsource/baloo-2/devanagari-600.css';
+@import '@fontsource/baloo-2/devanagari-700.css';
+@import '@fontsource/baloo-2/devanagari-800.css';
+@import '@fontsource/plus-jakarta-sans/latin-400.css';
+@import '@fontsource/plus-jakarta-sans/latin-500.css';
+@import '@fontsource/plus-jakarta-sans/latin-600.css';
+@import '@fontsource/plus-jakarta-sans/latin-700.css';
+@import '@fontsource/plus-jakarta-sans/latin-800.css';
+@import 'material-symbols/outlined.css';
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  background: #0a0b0d;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+button {
+  font-family: inherit;
+}
+
+input::placeholder {
+  color: oklch(0.5 0.02 265);
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+a {
+  color: oklch(0.72 0.14 245);
+  text-decoration: none;
+}
+a:hover {
+  color: oklch(0.8 0.14 245);
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'opsz' 20, 'wght' 400, 'FILL' 0, 'GRAD' 0;
+  font-feature-settings: 'liga';
+}
+
+@keyframes sheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes popIn {
+  0% {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@media (min-width: 640px) {
+  .app-page {
+    padding: 24px;
+  }
+  .app-frame {
+    min-height: 0 !important;
+    height: min(92vh, 900px);
+    border-radius: 32px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  }
+}
+
+@keyframes confettiFall {
+  0% {
+    transform: translateY(-10px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(220px) rotate(340deg);
+    opacity: 0;
+  }
+}

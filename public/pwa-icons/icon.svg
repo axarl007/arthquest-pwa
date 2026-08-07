@@ -1,0 +1,14 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" fill="#0b0f18"/>
+  <g transform="translate(0 0) scale(1)">
+    <circle cx="256" cy="256" r="176" fill="none" stroke="#2e333d" stroke-width="56"/>
+    <circle cx="256" cy="256" r="176" fill="none" stroke="#4dacf6" stroke-width="56"
+      stroke-linecap="round" stroke-dasharray="796.2052421257971 1105.840614063607"
+      transform="rotate(-90 256 256)"/>
+    <circle cx="83.1174438717508"
+      cy="288.9791113670875"
+      r="23.52" fill="#b897f0"/>
+    <text x="256" y="256" font-family="Arial, Helvetica, sans-serif" font-weight="800"
+      font-size="176" fill="#eef2f9" text-anchor="middle" dominant-baseline="central">A</text>
+  </g>
+</svg>
