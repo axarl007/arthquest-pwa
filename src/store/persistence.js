@@ -13,11 +13,16 @@ export function freshState() {
     onboarded: false,
     theme: 'dark',
     iconStyle: 'cartoon',
-    income: 0,
+    // Categories (type: 'budget' | 'quest') live in one array, mirroring the Android app's
+    // single `categories` table — a Quest is a category with quest* fields set, not a separate
+    // collection. Income categories are a genuinely separate table on both sides.
     categories: [],
     incomeCategories: [],
+    // Per-month allocation rows ({ id, categoryId, month: 'YYYY-MM', percentage, amount }) — the
+    // Android app has no persisted "current income" figure at all, only these computed amounts;
+    // spent/contributed totals are likewise never stored, always derived from `transactions`.
+    budgetAllocations: [],
     transactions: [],
-    quests: [],
     settingsToggles: { daily: true, monthEnd: true, backup: false, review: true },
   };
 }

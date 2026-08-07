@@ -42,5 +42,9 @@ export function iconSize(base, style) {
 export function iconImgUrl(name, style) {
   if (style !== 'cartoon') return null;
   const key = EMOJI_MAP[name] ? name : 'category';
-  return `/icons/twemoji/${key}.svg`;
+  // BASE_URL is Vite's configured `base` ("/arthquest-pwa/" in production, "/" in dev/test) —
+  // a hardcoded leading-slash path would 404 once deployed under the GitHub Pages subpath, since
+  // (unlike href/src in index.html) Vite does not rewrite runtime-constructed JS string paths.
+  const base = import.meta.env?.BASE_URL ?? '/';
+  return `${base}icons/twemoji/${key}.svg`;
 }

@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { formatINR, shortDate, dLabel, monthLabel, currentMonthKey, addMonthsToKey, compareMonthKeys } from './format.js';
+import { formatINR, groupIndianDigits, shortDate, dLabel, monthLabel, currentMonthKey, addMonthsToKey, compareMonthKeys } from './format.js';
+
+describe('groupIndianDigits', () => {
+  it('matches the Android Currency.kt grouping algorithm exactly', () => {
+    expect(groupIndianDigits('120000')).toBe('1,20,000');
+    expect(groupIndianDigits('850')).toBe('850');
+    expect(groupIndianDigits('12345678')).toBe('1,23,45,678');
+    expect(groupIndianDigits('')).toBe('');
+    expect(groupIndianDigits('5')).toBe('5');
+  });
+});
 
 describe('formatINR', () => {
   it('formats thousands with Indian grouping', () => {

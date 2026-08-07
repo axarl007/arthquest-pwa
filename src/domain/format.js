@@ -4,18 +4,22 @@ export const MONTHS_FULL = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-/** Indian-numbering currency string, e.g. 120000 -> "₹1,20,000". */
-export function formatINR(n) {
-  const neg = n < 0;
-  const rounded = Math.round(Math.abs(n));
-  const s = String(rounded);
-  let last3 = s.slice(-3);
-  let rest = s.slice(0, -3);
+/** Indian digit grouping on a plain digit string, e.g. "120000" -> "1,20,000" (last 3, then pairs). */
+export function groupIndianDigits(digits) {
+  let last3 = digits.slice(-3);
+  let rest = digits.slice(0, -3);
   if (rest !== '') {
     rest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',');
     last3 = ',' + last3;
   }
-  return (neg ? '-' : '') + '₹' + rest + last3;
+  return rest + last3;
+}
+
+/** Indian-numbering currency string, e.g. 120000 -> "₹1,20,000". */
+export function formatINR(n) {
+  const neg = n < 0;
+  const rounded = Math.round(Math.abs(n));
+  return (neg ? '-' : '') + '₹' + groupIndianDigits(String(rounded));
 }
 
 function parseIsoDate(iso) {
