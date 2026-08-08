@@ -23,7 +23,13 @@ export function freshState() {
     // spent/contributed totals are likewise never stored, always derived from `transactions`.
     budgetAllocations: [],
     transactions: [],
-    settingsToggles: { daily: true, monthEnd: true, backup: false, review: true },
+    // Every reminder toggle defaults on, matching AppPreferences' own `?: true` fallback for all
+    // four (backupReminderEnabled included — a prior default of false here was a ticket #1
+    // oversight, not a deliberate divergence like theme/iconStyle's).
+    settingsToggles: { daily: true, monthEnd: true, backup: true, review: true },
+    // Last date the periodic backup reminder actually fired (see domain/reminders.js) — lets that
+    // reminder derive "periodic" from elapsed time, matching AppPreferences.lastBackupReminderDate.
+    lastBackupReminderDate: null,
   };
 }
 

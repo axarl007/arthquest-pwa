@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '../../store/useStore.js';
 import { useTheme } from '../../theme/useTheme.js';
 import { GROUP_LABELS, makeId } from '../../domain/categories.js';
+import { withRecomputedQuestStatus } from '../../domain/quests.js';
 import { QUEST_COLOR } from '../../theme/tokens.js';
 import { todayIso } from '../../domain/format.js';
 import { BottomSheet } from './BottomSheet.jsx';
@@ -72,7 +73,13 @@ export function LogTransactionSheet({ initialType = 'expense', initialCategoryId
       incomeCategoryId: type === 'income' ? categoryId : null,
       isRedemption: false,
     };
-    setState((s) => ({ transactions: [transaction, ...s.transactions] }));
+    setState((s) => {
+      const transactions = [transaction, ...s.transactions];
+      if (type !== 'quest_contribution') return { transactions };
+      // Mirrors QuestRepository.recomputeStatus, called after every quest-contribution insert —
+      // a contribution reaching the quest's target flips it to Completed right away.
+      return { transactions, categories: withRecomputedQuestStatus(s.categories, categoryId, transactions) };
+    });
     onClose();
   };
 
