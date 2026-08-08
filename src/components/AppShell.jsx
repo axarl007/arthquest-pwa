@@ -1,4 +1,5 @@
 import { useTheme } from '../theme/useTheme.js';
+import { useViewportHeight } from './useViewportHeight.js';
 
 /**
  * Page background + app frame. No fake OS chrome (status bar/bezel/gesture
@@ -10,11 +11,12 @@ import { useTheme } from '../theme/useTheme.js';
  */
 export function AppShell({ children }) {
   const { T } = useTheme();
+  useViewportHeight();
 
   return (
     <div
       style={{
-        minHeight: '100dvh',
+        minHeight: 'var(--app-vh, 100dvh)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -27,7 +29,7 @@ export function AppShell({ children }) {
         style={{
           width: '100%',
           maxWidth: 460,
-          minHeight: '100dvh',
+          minHeight: 'var(--app-vh, 100dvh)',
           // Bounds the frame to exactly the viewport so its flex:1/overflow:auto content
           // child (see App.jsx and every subscreen) actually scrolls internally instead of
           // the whole box growing past the viewport — without this, BottomNav/Fab (anchored
@@ -36,8 +38,11 @@ export function AppShell({ children }) {
           // (index.css, >=640px) sets its own non-!important `height`, which an inline
           // `height` would always win over regardless of the query; `maxHeight` is a
           // different property so it can't fight that override (and is a no-op there anyway,
-          // since min(92vh, 900px) is already <= 100dvh).
-          maxHeight: '100dvh',
+          // since min(92vh, 900px) is already <= 100dvh). `var(--app-vh, 100dvh)` (see
+          // useViewportHeight.js) replaces the raw `100dvh` value only — same property, same
+          // cascade behavior — to work around Android Chrome's dvh not always recomputing
+          // after a mid-session viewport change (e.g. pull-to-refresh's address-bar animation).
+          maxHeight: 'var(--app-vh, 100dvh)',
           background: T.frameBg,
           color: T.text,
           display: 'flex',
