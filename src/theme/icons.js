@@ -4,6 +4,9 @@ export const ICON_OPTIONS = [
   'local_gas_station', 'coffee', 'wifi', 'school', 'child_care', 'medical_services', 'directions_bus', 'local_taxi',
   'local_parking', 'content_cut', 'checkroom', 'tv', 'volunteer_activism', 'local_hospital', 'sports_esports',
   'local_bar', 'cake', 'book', 'credit_card', 'receipt_long',
+  'bolt', 'account_balance', 'shield', 'health_and_safety', 'trending_up', 'umbrella', 'savings', 'redeem',
+  'key', 'cleaning_services', 'smartphone', 'handyman', 'car_repair', 'interests', 'subscriptions',
+  'autorenew', 'real_estate_agent', 'help',
 ];
 
 export const EMOJI_MAP = {
@@ -17,6 +20,8 @@ export const EMOJI_MAP = {
   medical_services: '🩺', directions_bus: '🚌', local_taxi: '🚕', local_parking: '🅿️',
   content_cut: '✂️', checkroom: '👕', tv: '📺', volunteer_activism: '🤝', local_hospital: '🏥',
   sports_esports: '🎮', local_bar: '🍸', cake: '🎂', book: '📚', credit_card: '💳', receipt_long: '🧾',
+  key: '🔑', cleaning_services: '🧹', smartphone: '📱', handyman: '🛠️', car_repair: '🔧',
+  interests: '🎨', subscriptions: '📺', autorenew: '🔄', real_estate_agent: '🏡', help: '❓',
 };
 
 /** In "flat" style this is a Material Symbols glyph name; in "cartoon" style, an emoji. */
