@@ -1,10 +1,9 @@
-import { useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from './store/useStore.js';
 import { useTheme } from './theme/useTheme.js';
 import { AppShell } from './components/AppShell.jsx';
 import { BottomNav } from './components/BottomNav.jsx';
 import { Fab } from './components/Fab.jsx';
-import { Toast } from './components/Toast.jsx';
 import { LogTransactionSheet } from './components/sheets/LogTransactionSheet.jsx';
 import { TxActionsSheet } from './components/sheets/TxActionsSheet.jsx';
 import { BudgetActionsSheet } from './components/sheets/BudgetActionsSheet.jsx';
@@ -17,29 +16,56 @@ import { Budget } from './screens/Budget.jsx';
 import { CategoryDetail } from './screens/CategoryDetail.jsx';
 import { Quests } from './screens/Quests.jsx';
 import { QuestDetail } from './screens/QuestDetail.jsx';
+import { Settings } from './screens/Settings.jsx';
+import { Categories } from './screens/Categories.jsx';
 import { resolveTransactionSubject } from './domain/transactions.js';
+import { dueReminders } from './domain/reminders.js';
+import { todayIso } from './domain/format.js';
 
 const TAB_SCREENS = { home: Home, transactions: Transactions, budget: Budget, quests: Quests };
 
 export default function App() {
-  const { state } = useStore();
+  const { state, setState } = useStore();
   const { T, C } = useTheme();
   const [screen, setScreen] = useState(() => (state.onboarded ? 'home' : 'onboarding'));
   // Subscreen state for Budget -> category detail; cleared whenever we navigate away from it.
   const [categoryDetail, setCategoryDetail] = useState(null); // null | { categoryId, monthKey }
   // Subscreen state for Quests -> quest detail; cleared whenever we navigate away from it.
   const [questDetail, setQuestDetail] = useState(null); // null | { questId, autoRedeem? }
+  // Subscreen state for Home -> Settings (-> Categories); cleared whenever we navigate away.
+  const [settings, setSettings] = useState(null); // null | 'main' | 'categories'
   // null | { type: 'log', initialType?, initialCategoryId? } | { type: 'txActions', tx } |
   // { type: 'budgetActions' } | { type: 'addCategory', context, initialGroup } | { type: 'newQuest', initialName? }
   const [sheet, setSheet] = useState(null);
-  const [toast, setToast] = useState(null);
-  const toastTimer = useRef(null);
 
-  const notYetBuilt = (feature) => {
-    clearTimeout(toastTimer.current);
-    setToast(`${feature} arrives in a later update`);
-    toastTimer.current = setTimeout(() => setToast(null), 2200);
-  };
+  // Best-effort foreground reminder check, once per app open (decision #3: no push server, no
+  // proactive permission prompting — Notification.permission is only ever 'granted' here because
+  // the user already opted in via a Settings toggle, so a not-granted permission makes this a
+  // silent no-op, mirroring AndroidReminderNotifier's own silent no-op path).
+  useEffect(() => {
+    if (!state.onboarded) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const today = todayIso();
+    const due = dueReminders(state, today);
+    let backupNotified = false;
+    for (const reminder of due) {
+      try {
+        // eslint-disable-next-line no-new
+        new Notification(reminder.title, { body: reminder.body });
+        if (reminder.key === 'backup') backupNotified = true;
+      } catch {
+        // Notification construction can throw in some contexts (e.g. no active document) —
+        // best-effort means a failure here shouldn't break the app. Crucially, lastBackupReminderDate
+        // below only advances on an actual successful notify, not just a "was due" check — otherwise
+        // a throw here would silently mark the user as reminded when they were never shown anything,
+        // pushing the next real reminder out by the full interval.
+      }
+    }
+    if (backupNotified) {
+      setState({ lastBackupReminderDate: today });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const closeSheet = () => setSheet(null);
 
@@ -58,7 +84,6 @@ export default function App() {
     return (
       <AppShell>
         <Onboarding onFinish={() => setScreen('home')} onOpenAddCategory={() => openAddCategory('budget')} />
-        <Toast message={toast} />
         {sheet?.type === 'addCategory' && (
           <AddCategorySheet
             context={sheet.context}
@@ -73,12 +98,18 @@ export default function App() {
   }
 
   const TabScreen = TAB_SCREENS[screen];
+  // True whenever a full-screen subscreen overlay is covering the tab screen — BottomNav and the
+  // transaction-logging Fab are unmounted (not just visually covered) while one is open, both to
+  // match "no bottom-nav/FAB on this subscreen" and so a hidden, still-focusable/query-able FAB
+  // doesn't linger in the DOM (e.g. Categories' own "add category" Fab would otherwise share the
+  // global Fab's aria-label with one of them invisible underneath).
+  const subscreenOpen = Boolean(categoryDetail || questDetail || settings);
 
   return (
     <AppShell>
       <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
         <TabScreen
-          onOpenSettings={() => notYetBuilt('Settings')}
+          onOpenSettings={() => setSettings('main')}
           onOpenActions={() => setSheet({ type: 'budgetActions' })}
           onOpenNewQuest={() => setSheet({ type: 'newQuest' })}
           onSelectTx={(tx) => setSheet({ type: 'txActions', tx })}
@@ -87,16 +118,41 @@ export default function App() {
           onRedeemQuest={(questId) => setQuestDetail({ questId, autoRedeem: true })}
         />
       </div>
-      <BottomNav
-        active={screen}
-        onNavigate={(next) => {
-          setCategoryDetail(null);
-          setQuestDetail(null);
-          setScreen(next);
-        }}
-      />
-      <Fab onClick={() => setSheet({ type: 'log' })} />
-      <Toast message={toast} />
+      {!subscreenOpen && (
+        <>
+          <BottomNav
+            active={screen}
+            onNavigate={(next) => {
+              setCategoryDetail(null);
+              setQuestDetail(null);
+              setSettings(null);
+              setScreen(next);
+            }}
+          />
+          <Fab onClick={() => setSheet({ type: 'log' })} />
+        </>
+      )}
+
+      {settings && (
+        <div style={{ position: 'absolute', inset: 0, background: T.frameBg, zIndex: 15, display: 'flex', flexDirection: 'column' }}>
+          {settings === 'categories' ? (
+            <Categories onBack={() => setSettings('main')} onOpenAddCategory={openAddCategory} />
+          ) : (
+            <Settings
+              onBack={() => setSettings(null)}
+              onOpenCategories={() => setSettings('categories')}
+              onAdjustIncomeSplit={() => {
+                setSettings(null);
+                setScreen('onboarding');
+              }}
+              onReset={() => {
+                setSettings(null);
+                setScreen('onboarding');
+              }}
+            />
+          )}
+        </div>
+      )}
 
       {categoryDetail && (
         // Overlays Budget rather than replacing it, so Budget's search/filter/sort/month-nav

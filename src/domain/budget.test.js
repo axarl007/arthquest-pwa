@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBudgetRows, matchesBudgetFilter, sortBudgetRows, isLockedMonth } from './budget.js';
+import { buildBudgetRows, matchesBudgetFilter, sortBudgetRows, isLockedMonth, nearLimitCategories } from './budget.js';
 
 const category = (over) => ({
   id: 'c1', name: 'Groceries', icon: 'shopping_cart', type: 'budget', group: 'needs',
@@ -148,5 +148,27 @@ describe('isLockedMonth', () => {
     expect(isLockedMonth('2026-07', '2026-08')).toBe(true);
     expect(isLockedMonth('2026-08', '2026-08')).toBe(false);
     expect(isLockedMonth('2026-09', '2026-08')).toBe(false);
+  });
+});
+
+describe('nearLimitCategories', () => {
+  it('excludes green (comfortably under budget) categories', () => {
+    const categories = [category({ id: 'green' }), category({ id: 'yellow', name: 'Shopping' })];
+    const allocations = [alloc({ categoryId: 'green', amount: 10000 }), alloc({ id: 'a2', categoryId: 'yellow', amount: 10000 })];
+    const transactions = [
+      tx({ id: 't1', categoryId: 'green', amount: 1000 }),
+      tx({ id: 't2', categoryId: 'yellow', amount: 8500 }),
+    ];
+    const rows = nearLimitCategories(categories, allocations, transactions, '2026-08');
+    expect(rows.map((r) => r.categoryId)).toEqual(['yellow']);
+  });
+
+  it('caps at the given limit, highest-priority first', () => {
+    const categories = ['a', 'b', 'c', 'd'].map((id) => category({ id, name: id }));
+    const allocations = categories.map((c, i) => alloc({ id: `a${i}`, categoryId: c.id, amount: 10000 }));
+    const transactions = categories.map((c, i) => tx({ id: `t${i}`, categoryId: c.id, amount: 8000 + i * 1000 }));
+    const rows = nearLimitCategories(categories, allocations, transactions, '2026-08', 2);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.categoryId)).toEqual(['d', 'c']);
   });
 });

@@ -84,3 +84,18 @@ export function sortBudgetRows(rows, direction = 'desc') {
 export function isLockedMonth(monthKey, currentMonthKeyValue) {
   return monthKey < currentMonthKeyValue;
 }
+
+/** How many "near limit" categories Home's condensed list surfaces — ported from
+ * HomeViewModel.kt's NEAR_LIMIT_LIMIT. */
+export const NEAR_LIMIT_LIMIT = 3;
+
+/**
+ * Mirrors HomeViewModel's nearLimitCategories: the top `limit` categories not comfortably under
+ * budget (yellow or red — "actually close" to their cap, not merely "has any spend"), reusing the
+ * same builder and priority order the Budget screen itself uses so the two screens can never
+ * disagree on which categories are flagged.
+ */
+export function nearLimitCategories(categories, budgetAllocations, transactions, monthKey, limit = NEAR_LIMIT_LIMIT) {
+  const rows = buildBudgetRows(categories, budgetAllocations, transactions, monthKey).filter((r) => r.colorState !== 'green');
+  return sortBudgetRows(rows, 'desc').slice(0, limit);
+}

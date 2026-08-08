@@ -3,6 +3,7 @@ import {
   monthKeyOfDate,
   transactionsInMonth,
   monthlyTotals,
+  cumulativePosition,
   spentForCategory,
   contributedForQuest,
   sortTransactions,
@@ -39,6 +40,26 @@ describe('monthlyTotals', () => {
     ];
     const totals = monthlyTotals(list, '2026-08');
     expect(totals).toEqual({ income: 120000, expense: 30000, questContribution: 8000, net: 82000 });
+  });
+});
+
+describe('cumulativePosition', () => {
+  it('is all-time income minus all-time expense, ignoring month', () => {
+    const list = [
+      tx({ id: '1', type: 'income', amount: 120000, date: '2026-06-01' }),
+      tx({ id: '2', type: 'expense', amount: 30000, date: '2026-08-02' }),
+      tx({ id: '3', type: 'income', amount: 50000, date: '2026-08-03' }),
+    ];
+    expect(cumulativePosition(list)).toBe(140000);
+  });
+
+  it('excludes quest contributions (not a real outflow) but includes a redemption expense', () => {
+    const list = [
+      tx({ id: '1', type: 'income', amount: 100000, date: '2026-08-01' }),
+      tx({ id: '2', type: 'quest_contribution', amount: 20000, date: '2026-08-02' }),
+      tx({ id: '3', type: 'expense', amount: 20000, date: '2026-08-03', isRedemption: true }),
+    ];
+    expect(cumulativePosition(list)).toBe(80000);
   });
 });
 

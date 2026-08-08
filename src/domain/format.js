@@ -22,7 +22,8 @@ export function formatINR(n) {
   return (neg ? '-' : '') + '₹' + groupIndianDigits(String(rounded));
 }
 
-function parseIsoDate(iso) {
+/** "2026-08-15" -> { y: 2026, m: 8, d: 15 } */
+export function parseIsoDate(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return { y, m, d };
 }
@@ -39,7 +40,8 @@ export function longDate(iso) {
   return `${d} ${MONTHS_SHORT[m - 1]} ${y}`;
 }
 
-function daysBetween(isoA, isoB) {
+/** Whole days from `isoA` to `isoB` (positive if `isoB` is later), UTC-anchored so DST never skews it. */
+export function daysBetween(isoA, isoB) {
   const a = new Date(isoA + 'T00:00:00Z');
   const b = new Date(isoB + 'T00:00:00Z');
   return Math.round((b - a) / 86400000);

@@ -25,6 +25,17 @@ export function monthlyTotals(transactions, monthKey) {
   return { income, expense, questContribution, net: income - expense - questContribution };
 }
 
+/**
+ * All-time Income − all-time Expense — mirrors HomeUiState.cumulativePosition exactly. Quest
+ * Contributions are excluded since they aren't a real outflow; a Quest's Redemption is already a
+ * plain EXPENSE transaction (`type:'expense', isRedemption:true`), so it's counted here without
+ * any special-casing — the same "only an Expense leaves the system" rule Android's comment states.
+ */
+export function cumulativePosition(transactions) {
+  const sumOf = (type) => transactions.filter((t) => t.type === type).reduce((sum, t) => sum + t.amount, 0);
+  return sumOf('income') - sumOf('expense');
+}
+
 /** Sum of EXPENSE transactions against `categoryId` within `monthKey` — a budget category's "spent". */
 export function spentForCategory(transactions, categoryId, monthKey) {
   return transactionsInMonth(transactions, monthKey)
