@@ -16,8 +16,10 @@ const TYPE_DEFS = [
  * Shared "add a category/income source/quest-stub" sheet — opened from Budget's actions sheet,
  * the Categories screen FAB (ticket #6), and onboarding's FAB. `context` is 'budget' (default) or
  * 'income'; a budget-context save creating a Quest doesn't persist anything here — Quest creation
- * needs a target amount/date this sheet doesn't collect, so it hands off to `onRequestQuest`
- * (opens ticket #5's New Quest sheet, pre-filled with the name/icon already chosen).
+ * needs a target amount/date this sheet doesn't collect, so it hands off to `onRequestQuest` (opens
+ * ticket #5's New Quest sheet, pre-filled with the name already typed). No icon picker for that
+ * branch — mirrors QuestFormSheet.kt, where every Quest gets the same fixed 'flag' icon regardless
+ * of what's chosen here, so asking the user to pick one first would be pointless friction.
  */
 export function AddCategorySheet({ context = 'budget', initialGroup = 'needs', onClose, onRequestQuest }) {
   const { state, setState } = useStore();
@@ -29,12 +31,13 @@ export function AddCategorySheet({ context = 'budget', initialGroup = 'needs', o
   const [icon, setIcon] = useState(null);
 
   const isIncome = context === 'income';
+  const isQuest = !isIncome && type === 'quest';
   const trimmedName = name.trim();
-  const canSave = trimmedName.length > 0 && icon !== null;
+  const canSave = trimmedName.length > 0 && (isQuest || icon !== null);
 
   const noteText = isIncome
     ? "Added as an Income category — no type to pick."
-    : type === 'quest'
+    : isQuest
       ? "Goes into Savings — type can't be changed later."
       : "Type can't be changed once created.";
 
@@ -49,8 +52,8 @@ export function AddCategorySheet({ context = 'budget', initialGroup = 'needs', o
       onClose();
       return;
     }
-    if (type === 'quest') {
-      onRequestQuest(trimmedName, icon);
+    if (isQuest) {
+      onRequestQuest(trimmedName);
       return;
     }
     const newCategory = {
@@ -119,26 +122,28 @@ export function AddCategorySheet({ context = 'budget', initialGroup = 'needs', o
         </div>
       )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
-        {ICON_OPTIONS.map((opt) => {
-          const active = icon === opt;
-          return (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => setIcon(opt)}
-              style={{
-                width: 40, height: 40, borderRadius: 12, cursor: 'pointer',
-                border: `2px solid ${active ? C.accent : T.border}`,
-                background: active ? 'oklch(0.3 0.06 245)' : (iconStyle === 'cartoon' ? 'transparent' : T.btnSecondaryBg),
-                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, color: T.text,
-              }}
-            >
-              <CategoryIcon icon={opt} iconStyle={iconStyle} glyphBase={18} bare />
-            </button>
-          );
-        })}
-      </div>
+      {!isQuest && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
+          {ICON_OPTIONS.map((opt) => {
+            const active = icon === opt;
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setIcon(opt)}
+                style={{
+                  width: 40, height: 40, borderRadius: 12, cursor: 'pointer',
+                  border: `2px solid ${active ? C.accent : T.border}`,
+                  background: active ? 'oklch(0.3 0.06 245)' : (iconStyle === 'cartoon' ? 'transparent' : T.btnSecondaryBg),
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, color: T.text,
+                }}
+              >
+                <CategoryIcon icon={opt} iconStyle={iconStyle} glyphBase={18} bare />
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div style={{ fontSize: 11.5, color: T.textTertiary, marginTop: 10 }}>{noteText}</div>
 

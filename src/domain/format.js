@@ -33,6 +33,12 @@ export function shortDate(iso) {
   return `${d} ${MONTHS_SHORT[m - 1]}`;
 }
 
+/** "2026-08-01" -> "1 Aug 2026" — for dates far enough out (quest target/redeemed dates) that the year matters. */
+export function longDate(iso) {
+  const { y, m, d } = parseIsoDate(iso);
+  return `${d} ${MONTHS_SHORT[m - 1]} ${y}`;
+}
+
 function daysBetween(isoA, isoB) {
   const a = new Date(isoA + 'T00:00:00Z');
   const b = new Date(isoB + 'T00:00:00Z');
