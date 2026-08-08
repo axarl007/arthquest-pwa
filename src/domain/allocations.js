@@ -29,12 +29,42 @@ export function buildOnboardingRows(categories, budgetAllocations, monthKey) {
 }
 
 export function allocationTotals(rows) {
-  const allocatedPercentage = rows.reduce((sum, r) => sum + r.percentage, 0);
+  // half-up rounded to 2dp: with fractional per-row percentages now allowed, summing many
+  // JS floats (e.g. several 4.5s) can drift by a fraction of a cent (0.1 + 0.2 !== 0.3) —
+  // rounding here keeps the 100%-allocated boundary check and the displayed total exact
+  // rather than occasionally showing "100.00000000000001%" or a false over-allocation.
+  const allocatedPercentage = halfUpRound(rows.reduce((sum, r) => sum + r.percentage, 0), 2);
   return {
     allocatedPercentage,
-    remainingPercentage: 100 - allocatedPercentage,
+    remainingPercentage: halfUpRound(100 - allocatedPercentage, 2),
     isOverAllocated: allocatedPercentage > 100,
   };
+}
+
+/**
+ * Strips a percentage input string down to digits and at most one decimal point with at most 2
+ * fractional digits (matching the 2dp precision the rest of this module already standardizes on
+ * — see allocationTotals/saveAllocations' halfUpRound calls), without parsing it to a number —
+ * preserves whatever the user is mid-typing (e.g. a trailing ".") so a fractional split like
+ * "4.5" can actually be typed digit-by-digit rather than snapping back to "4" the moment the "."
+ * is entered. Capping fractional digits here (rather than only on commit) keeps the input's
+ * on-screen width bounded while still focused, not just once parsePercentageInput rounds it.
+ */
+export function sanitizePercentageInput(raw) {
+  const cleaned = raw.replace(/[^0-9.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  if (firstDot === -1) return cleaned;
+  const fractional = cleaned.slice(firstDot + 1).replace(/\./g, '').slice(0, 2);
+  return cleaned.slice(0, firstDot + 1) + fractional;
+}
+
+/** Parses a (already-sanitized) percentage input into a non-negative number half-up rounded to
+ * 2dp, defaulting to 0 for empty/invalid input — the value actually committed to the row once
+ * editing ends. Rounding here (not just relying on sanitizePercentageInput's typing-time cap)
+ * keeps a directly-called/programmatic value just as bounded as one typed through the UI. */
+export function parsePercentageInput(text) {
+  const n = Number(text);
+  return Number.isFinite(n) && n >= 0 ? halfUpRound(n, 2) : 0;
 }
 
 /**
@@ -46,7 +76,7 @@ export function allocationTotals(rows) {
  * full allocations list (delete-then-insert, like the Android transaction).
  */
 export function saveAllocations(income, rows, monthKey) {
-  const total = rows.reduce((sum, r) => sum + r.percentage, 0);
+  const total = halfUpRound(rows.reduce((sum, r) => sum + r.percentage, 0), 2);
   if (total > 100) {
     throw new Error(`Allocations for ${monthKey} sum to ${total}% which exceeds 100%`);
   }

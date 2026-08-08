@@ -2,10 +2,59 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store/useStore.js';
 import { useTheme } from '../theme/useTheme.js';
 import { seedDefaultsIfNeeded, GROUPS_ORDER, GROUP_LABELS } from '../domain/categories.js';
-import { buildOnboardingRows, allocationTotals, saveAllocations } from '../domain/allocations.js';
+import {
+  buildOnboardingRows, allocationTotals, saveAllocations, sanitizePercentageInput, parsePercentageInput,
+} from '../domain/allocations.js';
 import { formatINR, groupIndianDigits, currentMonthKey } from '../domain/format.js';
+import { halfUpRound } from '../domain/money.js';
 import { Fab } from '../components/Fab.jsx';
 import { CategoryIcon } from '../components/CategoryIcon.jsx';
+
+/**
+ * Tap-to-edit percentage field: the +/- buttons alongside it stay integer-step-1, but a bigger
+ * salary can make even 1% a large rupee swing, so this lets a fractional split (e.g. 4.5%) be
+ * typed directly. Keeps its own draft string while focused (re-synced from `value` whenever it
+ * changes from outside, e.g. the +/- steppers) so a mid-typed "4." isn't immediately snapped
+ * back to "4" by a controlled-value round-trip — the typed text only commits to a real number
+ * (sanitized, clamped >=0) onBlur/Enter. Every other numeric field in this codebase (income
+ * above, transaction/quest amount inputs) commits on every keystroke instead; this is the first
+ * free-type-then-commit input, needed here specifically because a decimal point mid-entry has
+ * nowhere to "go" in a same-keystroke-commit model without snapping back.
+ */
+function PercentageInput({ value, onChange }) {
+  const { T } = useTheme();
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commit = () => {
+    const parsed = parsePercentageInput(draft);
+    setDraft(String(parsed));
+    if (parsed !== value) onChange(parsed);
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', width: 52, justifyContent: 'center' }}>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        onChange={(e) => setDraft(sanitizePercentageInput(e.target.value))}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+        style={{
+          // Sized for the worst case now that sanitizePercentageInput/parsePercentageInput cap
+          // fractional precision at 2dp: "100.00" (6 chars) at this font/weight.
+          width: 40, background: 'none', border: 'none', outline: 'none', padding: 0,
+          fontSize: 13, fontWeight: 700, textAlign: 'center', color: T.text,
+        }}
+      />
+      <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>%</span>
+    </div>
+  );
+}
 
 export function Onboarding({ onFinish, onOpenAddCategory }) {
   const { state, setState } = useStore();
@@ -38,7 +87,14 @@ export function Onboarding({ onFinish, onOpenAddCategory }) {
   };
 
   const adjustPercentage = (categoryId, delta) => {
-    setRows((rs) => rs.map((r) => (r.categoryId === categoryId ? { ...r, percentage: Math.max(0, r.percentage + delta) } : r)));
+    // Half-up rounded to 2dp: r.percentage can now be fractional (typed via PercentageInput),
+    // and raw float addition/subtraction on a fractional base drifts (e.g. 1.2 - 1 ===
+    // 0.19999999999999996 in IEEE-754) — round on every mutation, not just on manual entry.
+    setRows((rs) => rs.map((r) => (r.categoryId === categoryId ? { ...r, percentage: halfUpRound(Math.max(0, r.percentage + delta), 2) } : r)));
+  };
+
+  const setPercentage = (categoryId, value) => {
+    setRows((rs) => rs.map((r) => (r.categoryId === categoryId ? { ...r, percentage: value } : r)));
   };
 
   const finish = () => {
@@ -54,7 +110,7 @@ export function Onboarding({ onFinish, onOpenAddCategory }) {
   const groups = GROUPS_ORDER
     .map((g) => {
       const categories = rows.filter((r) => r.group === g);
-      const groupPct = categories.reduce((a, r) => a + r.percentage, 0);
+      const groupPct = halfUpRound(categories.reduce((a, r) => a + r.percentage, 0), 2);
       return { key: g, label: GROUP_LABELS[g], categories, pctStr: `${groupPct}%`, amountStr: formatINR((income * groupPct) / 100) };
     })
     .filter((g) => g.categories.length > 0);
@@ -150,7 +206,7 @@ export function Onboarding({ onFinish, onOpenAddCategory }) {
                     >
                       <span className="material-symbols-outlined" style={{ fontSize: 15 }}>remove</span>
                     </button>
-                    <span style={{ fontSize: 13, fontWeight: 700, width: 30, textAlign: 'center', color: T.text }}>{cat.percentage}%</span>
+                    <PercentageInput value={cat.percentage} onChange={(v) => setPercentage(cat.categoryId, v)} />
                     <button
                       type="button"
                       onClick={() => adjustPercentage(cat.categoryId, 1)}
