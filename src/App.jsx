@@ -22,12 +22,16 @@ import { Pairing } from './screens/Pairing.jsx';
 import { resolveTransactionSubject } from './domain/transactions.js';
 import { dueReminders } from './domain/reminders.js';
 import { todayIso } from './domain/format.js';
+import { useNearbySync } from './native/useNearbySync.js';
 
 const TAB_SCREENS = { home: Home, transactions: Transactions, budget: Budget, quests: Quests };
 
 export default function App() {
   const { state, setState } = useStore();
   const { T, C } = useTheme();
+  // Owns the Nearby Connections session (ticket #18) for the whole app — called once here, not
+  // per-screen, since it holds the plugin's singleton listener subscriptions and native session.
+  const nearby = useNearbySync();
   const [screen, setScreen] = useState(() => (state.onboarded ? 'home' : 'onboarding'));
   // Subscreen state for Budget -> category detail; cleared whenever we navigate away from it.
   const [categoryDetail, setCategoryDetail] = useState(null); // null | { categoryId, monthKey }
@@ -139,7 +143,7 @@ export default function App() {
           {settings === 'categories' ? (
             <Categories onBack={() => setSettings('main')} onOpenAddCategory={openAddCategory} />
           ) : settings === 'pairing' ? (
-            <Pairing onBack={() => setSettings('main')} />
+            <Pairing onBack={() => setSettings('main')} nearby={nearby} />
           ) : (
             <Settings
               onBack={() => setSettings(null)}

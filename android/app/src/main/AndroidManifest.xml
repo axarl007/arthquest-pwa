@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:allowBackup="true"
@@ -39,9 +40,34 @@
          the WebView, but the app is still usable without it (e.g. no camera present) — never
          required at install time. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Same for Bluetooth/Wi-Fi — used for peer-to-peer sync (ticket #18), never required to
+         install (a device without them simply can't sync). -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Nearby Connections (ticket #18) — the full permission set Google's own documentation
+         specifies for the API: legacy Bluetooth on API <=30, the split Bluetooth permissions on
+         31+, Wi-Fi state (Nearby's P2P_CLUSTER strategy uses Wi-Fi as well as Bluetooth), and
+         location, which every Android version up to 32 requires for BLE scanning regardless of
+         whether the app itself uses location for anything. NEARBY_WIFI_DEVICES (33+) lets a
+         13+ device skip needing location instead; requesting both covers every API level in this
+         app's minSdk 24 - targetSdk 36 range. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="33" />
 </manifest>

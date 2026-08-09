@@ -86,10 +86,13 @@ body = await page.evaluate(() => document.body.innerText);
 console.log('Settings shows paired device name:', body.includes("Paired with Wife's Phone"));
 
 await page.getByText("Paired with Wife's Phone").click();
-await page.waitForTimeout(200);
+await page.waitForTimeout(500);
 await page.screenshot({ path: '/tmp/shot-pairing-paired.png', fullPage: true });
 body = await page.evaluate(() => document.body.innerText);
 console.log('Pairing screen shows the paired-device banner:', body.includes('Paired with') && body.includes("Wife's Phone"));
+// NearbySync has no web implementation (Android-only, ticket #18), so on this platform the
+// connection-status card should degrade to a visible "Sync error" state rather than crash.
+console.log('Connection-status card renders without crashing once paired:', body.includes('Sync error') || body.includes('Searching') || body.includes('Connected'));
 
 await page.getByText('Unpair', { exact: true }).click();
 await page.waitForTimeout(150);

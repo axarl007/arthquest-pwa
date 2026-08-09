@@ -7,6 +7,7 @@ import { SubscreenHeader } from '../components/ScreenHeader.jsx';
 import { SegmentedControl } from '../components/SegmentedControl.jsx';
 import { BottomSheet } from '../components/sheets/BottomSheet.jsx';
 import { buildPairingPayload, parsePairingPayload, shortDeviceCode } from '../domain/pairing.js';
+import { useForegroundVisible } from '../native/useForegroundVisible.js';
 
 const TABS = [
   { key: 'mine', label: 'My code' },
@@ -31,12 +32,22 @@ function cameraErrorMessage(err) {
   }
 }
 
+const NEARBY_STATUS_LABEL = {
+  idle: 'Not syncing',
+  connecting: 'Searching for paired device…',
+  connected: 'Connected',
+  error: 'Sync error',
+};
+
 /**
  * One-time device pairing (ticket #17): shows this device's own QR (encoding its stable deviceId
  * + a user-editable display name) for the other device to scan, or scans the other device's QR
- * via the camera. Identity exchange only — no data transport happens here (that's #18/#20).
+ * via the camera. Identity exchange only, but once paired also surfaces the raw transport session
+ * (ticket #18, via the `nearby` prop from useNearbySync — see App.jsx) so a paired device can be
+ * test-pinged to confirm the two phones actually reach each other. No real merge/sync happens
+ * here either — that's #20.
  */
-export function Pairing({ onBack }) {
+export function Pairing({ onBack, nearby }) {
   const { state, setState } = useStore();
   const { T, C } = useTheme();
   const [tab, setTab] = useState('mine');
@@ -45,21 +56,14 @@ export function Pairing({ onBack }) {
   const [scanError, setScanError] = useState(null);
   const [pendingPair, setPendingPair] = useState(null); // { id, name } awaiting confirmation
   const [confirmUnpair, setConfirmUnpair] = useState(false);
-  const [visible, setVisible] = useState(typeof document === 'undefined' || !document.hidden);
+  // So the camera effect below can release the stream while backgrounded (home button, app
+  // switcher, tabbing away) instead of burning battery with the camera indicator lit on a screen
+  // nobody's looking at.
+  const visible = useForegroundVisible();
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef = useRef(null);
-
-  // Tracks whether the app is foregrounded, so the camera effect below can release the stream
-  // while backgrounded (home button, app switcher, tabbing away) instead of burning battery with
-  // the camera indicator lit on a screen nobody's looking at.
-  useEffect(() => {
-    if (typeof document === 'undefined') return undefined;
-    const onVisibilityChange = () => setVisible(!document.hidden);
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,7 +76,7 @@ export function Pairing({ onBack }) {
   const saveName = () => {
     const trimmed = nameDraft.trim();
     if (trimmed && trimmed !== state.deviceName) setState({ deviceName: trimmed });
-    else setNameDraft(state.deviceName);
+    setNameDraft(trimmed || state.deviceName);
   };
 
   // Camera scanning loop — only runs while the Scan tab is open, no pairing is awaiting
@@ -208,6 +212,38 @@ export function Pairing({ onBack }) {
             >
               Unpair
             </button>
+          </div>
+        )}
+
+        {state.pairedDevice && nearby && (
+          <div style={{ background: T.card, border: T.cardBorder, borderRadius: 14, padding: '14px 16px', marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: 4, flexShrink: 0,
+                background: nearby.status === 'connected' ? C.safe : nearby.status === 'error' ? C.danger : C.warn,
+              }}
+              />
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{NEARBY_STATUS_LABEL[nearby.status]}</div>
+            </div>
+            {nearby.error && (
+              // Shown regardless of status: a ping can fail (see sendPing) while the connection
+              // itself is otherwise still 'connected', not just while status === 'error'.
+              <div style={{ fontSize: 12, color: C.danger, marginTop: 6, lineHeight: 1.4 }}>{nearby.error}</div>
+            )}
+            {nearby.status === 'connected' && (
+              <>
+                <button
+                  type="button"
+                  onClick={nearby.sendPing}
+                  style={{ marginTop: 10, padding: '9px 14px', borderRadius: 100, border: 'none', background: C.accent, color: T.onAccentText, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Send test ping
+                </button>
+                {nearby.lastRoundTripMs !== null && (
+                  <div style={{ fontSize: 12, color: T.textTertiary, marginTop: 8 }}>Echo received in {nearby.lastRoundTripMs}ms</div>
+                )}
+              </>
+            )}
           </div>
         )}
 
