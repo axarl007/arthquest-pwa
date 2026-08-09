@@ -39,6 +39,16 @@ export function makeId() {
 }
 
 /**
+ * Flips a budget category's `archived` flag and stamps `archivedAt` with when it last changed —
+ * categories are never removed from the array (only archived/unarchived), so this timestamp is
+ * the field a future multi-device merge needs to resolve two devices toggling the same category
+ * differently while offline, the same role `deletedAt` plays for transactions.
+ */
+export function toggleArchived(categories, categoryId, now = Date.now()) {
+  return categories.map((c) => (c.id === categoryId ? { ...c, archived: !c.archived, archivedAt: now } : c));
+}
+
+/**
  * Mirrors OnboardingViewModel.seedDefaultsIfNeeded(): creates the default budget categories only
  * if no BUDGET-type category exists yet (quest-only state still gets seeded), and the default
  * income categories only if none exist at all. Idempotent — a no-op key is simply absent from the
@@ -63,6 +73,7 @@ export function seedDefaultsIfNeeded(state) {
       type: 'budget',
       group: seed.group,
       archived: false,
+      archivedAt: null,
       color: catColor(nextColorIndex++),
     }));
     patch.categories = [...state.categories, ...seeded];

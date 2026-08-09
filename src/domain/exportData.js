@@ -26,7 +26,7 @@ const TX_TYPE_FROM_EXPORT = { INCOME: 'income', EXPENSE: 'expense', QUEST_CONTRI
 function categoryToExport(c) {
   return {
     id: c.id, name: c.name, icon: c.icon, color: c.color, type: CATEGORY_TYPE_TO_EXPORT[c.type], group: GROUP_TO_EXPORT[c.group],
-    archived: c.archived, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
+    archived: c.archived, archivedAt: c.archivedAt ?? null, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
     questStatus: c.questStatus ? QUEST_STATUS_TO_EXPORT[c.questStatus] : null, questRedeemedDate: c.questRedeemedDate ?? null,
   };
 }
@@ -34,7 +34,7 @@ function categoryToExport(c) {
 function categoryFromExport(c) {
   return {
     id: c.id, name: c.name, icon: c.icon, color: c.color, type: CATEGORY_TYPE_FROM_EXPORT[c.type], group: GROUP_FROM_EXPORT[c.group],
-    archived: c.archived, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
+    archived: c.archived, archivedAt: c.archivedAt ?? null, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
     questStatus: c.questStatus ? QUEST_STATUS_FROM_EXPORT[c.questStatus] : null, questRedeemedDate: c.questRedeemedDate ?? null,
   };
 }
@@ -60,7 +60,11 @@ export function buildBackupJson(state) {
   const backup = {
     categories: state.categories.map(categoryToExport),
     incomeCategories: state.incomeCategories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color })),
-    transactions: state.transactions.map(transactionToExport),
+    // Tombstoned transactions (see domain/transactions.js's deleteTransaction) are excluded — a
+    // backup is a single-device restore point, not a sync payload, so there's no merge to protect
+    // against here; keeping them out matches Android's DataExportFormatter, which has no delete
+    // concept in its schema at all.
+    transactions: state.transactions.filter((t) => !t.deletedAt).map(transactionToExport),
     budgetAllocations: state.budgetAllocations.map((a) => ({ ...a })),
     settings: {
       theme: state.theme, iconStyle: state.iconStyle, onboarded: state.onboarded,
@@ -116,7 +120,7 @@ export function buildTransactionsCsv(state) {
   const categoryNameById = new Map(state.categories.map((c) => [c.id, c.name]));
   const incomeCategoryNameById = new Map(state.incomeCategories.map((c) => [c.id, c.name]));
   const header = ['Date', 'Type', 'Category', 'Description', 'Amount'].join(',');
-  const rows = state.transactions.map((t) => {
+  const rows = state.transactions.filter((t) => !t.deletedAt).map((t) => {
     const categoryName = t.type === 'income'
       ? incomeCategoryNameById.get(t.incomeCategoryId) ?? ''
       : categoryNameById.get(t.categoryId) ?? '';

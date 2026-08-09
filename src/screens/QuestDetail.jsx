@@ -3,6 +3,7 @@ import { useStore } from '../store/useStore.js';
 import { useTheme } from '../theme/useTheme.js';
 import { SubscreenHeader } from '../components/ScreenHeader.jsx';
 import { questProgress, redeemQuest } from '../domain/quests.js';
+import { notDeleted } from '../domain/transactions.js';
 import { formatINR, longDate } from '../domain/format.js';
 import { GOLD_COLOR } from '../theme/tokens.js';
 
@@ -48,7 +49,7 @@ export function QuestDetail({ questId, autoRedeem = false, onBack, onAddContribu
     completed: { bg: 'oklch(0.3 0.07 85)', color: 'oklch(0.85 0.1 85)', label: 'Completed' },
     redeemed: { bg: T.btnSecondaryBgAlt, color: T.textSecondary, label: 'Redeemed' },
   }[quest.questStatus];
-  const contributions = state.transactions
+  const contributions = notDeleted(state.transactions)
     .filter((t) => t.type === 'quest_contribution' && t.categoryId === questId)
     .sort((a, b) => (a.date === b.date ? b.createdAt - a.createdAt : a.date < b.date ? 1 : -1));
 

@@ -4,7 +4,7 @@ import { useTheme } from '../theme/useTheme.js';
 import { SubscreenHeader } from '../components/ScreenHeader.jsx';
 import { CategoryIcon } from '../components/CategoryIcon.jsx';
 import { Fab } from '../components/Fab.jsx';
-import { GROUPS_ORDER, GROUP_LABELS } from '../domain/categories.js';
+import { GROUPS_ORDER, GROUP_LABELS, toggleArchived } from '../domain/categories.js';
 
 const TABS = [
   { key: 'expense', label: 'Expense / Quest' },
@@ -16,10 +16,8 @@ export function Categories({ onBack, onOpenAddCategory }) {
   const { T, C, iconStyle } = useTheme();
   const [tab, setTab] = useState('expense');
 
-  const toggleArchived = (categoryId) => {
-    setState((s) => ({
-      categories: s.categories.map((c) => (c.id === categoryId ? { ...c, archived: !c.archived } : c)),
-    }));
+  const handleToggleArchived = (categoryId) => {
+    setState((s) => ({ categories: toggleArchived(s.categories, categoryId) }));
   };
 
   // Quests merge into the Savings group's list too, display-side only — matching the design
@@ -87,7 +85,7 @@ export function Categories({ onBack, onOpenAddCategory }) {
                     {canArchive && (
                       <button
                         type="button"
-                        onClick={() => toggleArchived(cat.id)}
+                        onClick={() => handleToggleArchived(cat.id)}
                         style={{
                           flexShrink: 0, fontSize: 12, fontWeight: 600, border: `1px solid ${T.border}`,
                           borderRadius: 100, padding: '6px 12px', background: 'none', color: T.textSecondary, cursor: 'pointer',

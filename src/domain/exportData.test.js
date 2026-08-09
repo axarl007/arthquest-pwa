@@ -6,8 +6,8 @@ const state = {
   theme: 'dark',
   iconStyle: 'cartoon',
   categories: [
-    { id: 'c1', name: 'Groceries', icon: 'shopping_cart', type: 'budget', group: 'needs', archived: false, color: 'oklch(0.62 0.13 150)', questTargetAmount: null, questTargetDate: null, questStatus: null, questRedeemedDate: null },
-    { id: 'q1', name: 'Goa Trip', icon: 'flag', type: 'quest', group: 'savings', archived: false, color: 'oklch(0.62 0.13 300)', questTargetAmount: 10000, questTargetDate: '2026-12-01', questStatus: 'active', questRedeemedDate: null },
+    { id: 'c1', name: 'Groceries', icon: 'shopping_cart', type: 'budget', group: 'needs', archived: false, archivedAt: null, color: 'oklch(0.62 0.13 150)', questTargetAmount: null, questTargetDate: null, questStatus: null, questRedeemedDate: null },
+    { id: 'q1', name: 'Goa Trip', icon: 'flag', type: 'quest', group: 'savings', archived: false, archivedAt: null, color: 'oklch(0.62 0.13 300)', questTargetAmount: 10000, questTargetDate: '2026-12-01', questStatus: 'active', questRedeemedDate: null },
   ],
   incomeCategories: [{ id: 'ic1', name: 'Salary', icon: 'work', color: 'oklch(0.62 0.13 28)' }],
   transactions: [
@@ -68,6 +68,28 @@ describe('buildBackupJson / parseBackupJson round-trip', () => {
     expect(() => parseBackupJson('{"not":"a backup"}')).toThrow();
     expect(() => parseBackupJson('not even json')).toThrow();
   });
+
+  it('round-trips a category\'s archivedAt timestamp (needed for a future multi-device merge to resolve conflicting archive toggles)', () => {
+    const archived = { ...state, categories: [{ ...state.categories[0], archived: true, archivedAt: 555 }, state.categories[1]] };
+    const patch = parseBackupJson(buildBackupJson(archived));
+    expect(patch.categories[0].archivedAt).toBe(555);
+  });
+
+  it('defaults archivedAt to null for a backup that predates the field (e.g. a genuine Android export)', () => {
+    const noArchivedAt = JSON.parse(buildBackupJson(state));
+    for (const c of noArchivedAt.categories) delete c.archivedAt;
+    const patch = parseBackupJson(JSON.stringify(noArchivedAt));
+    expect(patch.categories.every((c) => c.archivedAt === null)).toBe(true);
+  });
+
+  it('excludes tombstoned (deletedAt set) transactions from the backup', () => {
+    const withDeleted = {
+      ...state,
+      transactions: [...state.transactions, { id: 't3', type: 'expense', amount: 10, date: '2026-08-07', createdAt: 3000, categoryId: 'c1', incomeCategoryId: null, description: '', isRedemption: false, deletedAt: 4000 }],
+    };
+    const parsed = JSON.parse(buildBackupJson(withDeleted));
+    expect(parsed.transactions.map((t) => t.id)).toEqual(['t1', 't2']);
+  });
 });
 
 describe('buildTransactionsCsv', () => {
@@ -97,5 +119,14 @@ describe('buildTransactionsCsv', () => {
     const orphan = { ...state, categories: [], incomeCategories: [] };
     const csv = buildTransactionsCsv(orphan);
     expect(csv.split('\n')[1].startsWith('2026-08-05,EXPENSE,,')).toBe(true);
+  });
+
+  it('excludes tombstoned (deletedAt set) transactions', () => {
+    const withDeleted = {
+      ...state,
+      transactions: [...state.transactions, { id: 't3', type: 'expense', amount: 10, date: '2026-08-07', createdAt: 3000, categoryId: 'c1', incomeCategoryId: null, description: '', isRedemption: false, deletedAt: 4000 }],
+    };
+    const csv = buildTransactionsCsv(withDeleted);
+    expect(csv.split('\n')).toHaveLength(3); // header + t1 + t2, t3 excluded
   });
 });

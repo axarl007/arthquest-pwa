@@ -17,6 +17,7 @@ export function createQuest(name, icon, targetAmount, targetDate, categories, in
     type: 'quest',
     group: 'savings',
     archived: false,
+    archivedAt: null,
     color: catColor(categories.length + incomeCategories.length),
     questTargetAmount: targetAmount,
     questTargetDate: targetDate,
@@ -101,6 +102,7 @@ export function redeemQuest(quest, transactions, now = new Date()) {
     categoryId: quest.id,
     incomeCategoryId: null,
     isRedemption: true,
+    deletedAt: null,
   };
   return { transaction, questPatch: { questStatus: 'redeemed', questRedeemedDate: date } };
 }
