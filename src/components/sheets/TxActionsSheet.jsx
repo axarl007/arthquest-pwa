@@ -1,14 +1,21 @@
 import { useStore } from '../../store/useStore.js';
 import { useTheme } from '../../theme/useTheme.js';
 import { formatINR } from '../../domain/format.js';
+import { withRecomputedQuestStatus } from '../../domain/quests.js';
 import { BottomSheet } from './BottomSheet.jsx';
 
-export function TxActionsSheet({ txId, name, amount, type, onClose }) {
+export function TxActionsSheet({ txId, name, amount, type, categoryId, onClose }) {
   const { setState } = useStore();
   const { T } = useTheme();
 
   const deleteTx = () => {
-    setState((s) => ({ transactions: s.transactions.filter((t) => t.id !== txId) }));
+    setState((s) => {
+      const transactions = s.transactions.filter((t) => t.id !== txId);
+      if (type !== 'quest_contribution') return { transactions };
+      // Mirrors QuestRepository.recomputeStatus, called after every quest-contribution delete —
+      // removing a contribution can drop a Completed quest back to Active.
+      return { transactions, categories: withRecomputedQuestStatus(s.categories, categoryId, transactions) };
+    });
     onClose();
   };
 

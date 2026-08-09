@@ -4,6 +4,8 @@ import {
   allocationTotals,
   saveAllocations,
   ensureMonthSeeded,
+  sanitizePercentageInput,
+  parsePercentageInput,
 } from './allocations.js';
 
 const cat = (id, name, group, over = {}) => ({ id, name, icon: 'category', type: 'budget', group, archived: false, ...over });
@@ -64,6 +66,22 @@ describe('allocationTotals', () => {
     expect(t.isOverAllocated).toBe(true);
     expect(t.remainingPercentage).toBe(-10);
   });
+
+  it('sums fractional percentages correctly, half-up rounded to 2dp (no float drift artifacts)', () => {
+    const rows = [{ percentage: 4.5 }, { percentage: 8.1 }, { percentage: 12.3 }, { percentage: 0.1 }];
+    const t = allocationTotals(rows);
+    expect(t.allocatedPercentage).toBe(25);
+    expect(t.remainingPercentage).toBe(75);
+  });
+
+  it('does not false-positive over-allocate from float summation error at exactly 100', () => {
+    // 0.1 + 0.2 !== 0.3 in raw JS float math; a run of fractional rows landing on exactly
+    // 100% must not spuriously trip isOverAllocated from residual float dust.
+    const rows = [{ percentage: 33.3 }, { percentage: 33.3 }, { percentage: 33.4 }];
+    const t = allocationTotals(rows);
+    expect(t.allocatedPercentage).toBe(100);
+    expect(t.isOverAllocated).toBe(false);
+  });
 });
 
 describe('saveAllocations', () => {
@@ -83,6 +101,70 @@ describe('saveAllocations', () => {
   it('allows exactly 100%', () => {
     const rows = [{ categoryId: '1', percentage: 100 }];
     expect(() => saveAllocations(120000, rows, '2026-08')).not.toThrow();
+  });
+
+  it('computes a correct amount from a fractional percentage', () => {
+    const rows = [{ categoryId: '1', percentage: 4.5 }];
+    const result = saveAllocations(120000, rows, '2026-08');
+    expect(result[0].amount).toBe(5400);
+    expect(result[0].percentage).toBe(4.5);
+  });
+
+  it('does not false-positive throw on fractional rows landing on exactly 100% (float drift)', () => {
+    const rows = [{ categoryId: '1', percentage: 33.3 }, { categoryId: '2', percentage: 33.3 }, { categoryId: '3', percentage: 33.4 }];
+    expect(() => saveAllocations(120000, rows, '2026-08')).not.toThrow();
+  });
+});
+
+describe('sanitizePercentageInput', () => {
+  it('strips non-numeric characters', () => {
+    expect(sanitizePercentageInput('abc4.5xyz')).toBe('4.5');
+  });
+
+  it('preserves a trailing decimal point mid-typing', () => {
+    expect(sanitizePercentageInput('4.')).toBe('4.');
+  });
+
+  it('collapses a second decimal point rather than allowing it', () => {
+    expect(sanitizePercentageInput('4..5.6')).toBe('4.56');
+  });
+
+  it('caps fractional digits at 2, matching this module\'s 2dp precision elsewhere', () => {
+    expect(sanitizePercentageInput('4.56789')).toBe('4.56');
+  });
+
+  it('passes an empty string through unchanged', () => {
+    expect(sanitizePercentageInput('')).toBe('');
+  });
+
+  it('strips a minus sign (no negative percentages)', () => {
+    expect(sanitizePercentageInput('-4.5')).toBe('4.5');
+  });
+});
+
+describe('parsePercentageInput', () => {
+  it('parses a valid decimal string', () => {
+    expect(parsePercentageInput('4.5')).toBe(4.5);
+  });
+
+  it('parses a trailing-dot string as its integer value', () => {
+    expect(parsePercentageInput('4.')).toBe(4);
+  });
+
+  it('defaults empty input to 0', () => {
+    expect(parsePercentageInput('')).toBe(0);
+  });
+
+  it('defaults invalid input to 0', () => {
+    expect(parsePercentageInput('abc')).toBe(0);
+  });
+
+  it('never returns negative', () => {
+    expect(parsePercentageInput('-5')).toBe(0);
+  });
+
+  it('half-up rounds to 2dp even if handed more precision than sanitizePercentageInput would allow', () => {
+    expect(parsePercentageInput('4.567')).toBe(4.57);
   });
 });
 
