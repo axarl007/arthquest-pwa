@@ -25,12 +25,18 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    // Matches the JDK actually used to run this build (setup-java pins 21 in CI; this sandbox's
+    // own JDK is 21 too) — AGP's Java compile task doesn't reliably honor a sourceCompatibility
+    // lower than the running JDK here, which caused a real CI failure (compileDebugJavaWithJavac
+    // silently compiled at 21 despite being set to 17 below, while compileDebugKotlin correctly
+    // used 17, tripping AGP's "Inconsistent JVM-target compatibility" check). Setting both to the
+    // JDK's own version removes the mismatch instead of fighting AGP's inference.
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
     }
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = '21'
     }
 }
 
