@@ -13,6 +13,7 @@
  */
 
 import { catColor } from '../theme/tokens.js';
+import { notDeleted } from './transactions.js';
 
 const CATEGORY_TYPE_TO_EXPORT = { budget: 'BUDGET', quest: 'QUEST' };
 const CATEGORY_TYPE_FROM_EXPORT = { BUDGET: 'budget', QUEST: 'quest' };
@@ -64,7 +65,7 @@ export function buildBackupJson(state) {
     // backup is a single-device restore point, not a sync payload, so there's no merge to protect
     // against here; keeping them out matches Android's DataExportFormatter, which has no delete
     // concept in its schema at all.
-    transactions: state.transactions.filter((t) => !t.deletedAt).map(transactionToExport),
+    transactions: notDeleted(state.transactions).map(transactionToExport),
     budgetAllocations: state.budgetAllocations.map((a) => ({ ...a })),
     settings: {
       theme: state.theme, iconStyle: state.iconStyle, onboarded: state.onboarded,
@@ -120,7 +121,7 @@ export function buildTransactionsCsv(state) {
   const categoryNameById = new Map(state.categories.map((c) => [c.id, c.name]));
   const incomeCategoryNameById = new Map(state.incomeCategories.map((c) => [c.id, c.name]));
   const header = ['Date', 'Type', 'Category', 'Description', 'Amount'].join(',');
-  const rows = state.transactions.filter((t) => !t.deletedAt).map((t) => {
+  const rows = notDeleted(state.transactions).map((t) => {
     const categoryName = t.type === 'income'
       ? incomeCategoryNameById.get(t.incomeCategoryId) ?? ''
       : categoryNameById.get(t.categoryId) ?? '';
