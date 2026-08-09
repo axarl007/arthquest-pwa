@@ -74,8 +74,13 @@ export function parsePercentageInput(text) {
  * affordance, matching the Android repository's own `require()` guard. Returns only the new rows
  * for `monthKey`; the caller is responsible for replacing any prior rows for that month in the
  * full allocations list (delete-then-insert, like the Android transaction).
+ *
+ * `updatedAt` has no Android schema counterpart — like transactions' `deletedAt` and categories'
+ * `archivedAt`, it exists solely so a multi-device merge (`domain/sync.js`, ticket #19) can pick
+ * the most-recently-edited row when two devices independently replace the same (categoryId,
+ * month) row with different ids while offline.
  */
-export function saveAllocations(income, rows, monthKey) {
+export function saveAllocations(income, rows, monthKey, now = Date.now()) {
   const total = halfUpRound(rows.reduce((sum, r) => sum + r.percentage, 0), 2);
   if (total > 100) {
     throw new Error(`Allocations for ${monthKey} sum to ${total}% which exceeds 100%`);
@@ -86,6 +91,7 @@ export function saveAllocations(income, rows, monthKey) {
     month: monthKey,
     percentage: r.percentage,
     amount: halfUpRound((r.percentage / 100) * income, 2),
+    updatedAt: now,
   }));
 }
 
@@ -94,12 +100,19 @@ export function saveAllocations(income, rows, monthKey) {
  * yet but the immediately preceding month does, copies that month's rows forward verbatim (new
  * ids, same percentages/amounts) so a newly-opened month always has a budget rather than blank
  * categories. No-ops if `monthKey` already has rows, or the previous month has none either.
+ *
+ * Carries the source row's own `updatedAt` forward onto each copy (falling back to `now` only
+ * for pre-sync data that never had one) rather than stamping a fresh one: this is a mechanical
+ * copy triggered just by opening a new month (see Budget.jsx's mount effect), not a real edit, so
+ * it must not out-rank an actual `saveAllocations` edit a peer made to that same month — a sync
+ * merge (`domain/sync.js`) has no way to tell "copied verbatim" apart from "deliberately changed"
+ * if both stamp `now`.
  */
-export function ensureMonthSeeded(budgetAllocations, monthKey) {
+export function ensureMonthSeeded(budgetAllocations, monthKey, now = Date.now()) {
   if (budgetAllocations.some((a) => a.month === monthKey)) return budgetAllocations;
   const prevKey = addMonthsToKey(monthKey, -1);
   const previous = budgetAllocations.filter((a) => a.month === prevKey);
   if (previous.length === 0) return budgetAllocations;
-  const seeded = previous.map((a) => ({ ...a, id: makeId(), month: monthKey }));
+  const seeded = previous.map((a) => ({ ...a, id: makeId(), month: monthKey, updatedAt: a.updatedAt ?? now }));
   return [...budgetAllocations, ...seeded];
 }
