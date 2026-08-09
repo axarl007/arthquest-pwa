@@ -18,6 +18,7 @@ import { Quests } from './screens/Quests.jsx';
 import { QuestDetail } from './screens/QuestDetail.jsx';
 import { Settings } from './screens/Settings.jsx';
 import { Categories } from './screens/Categories.jsx';
+import { Pairing } from './screens/Pairing.jsx';
 import { resolveTransactionSubject } from './domain/transactions.js';
 import { dueReminders } from './domain/reminders.js';
 import { todayIso } from './domain/format.js';
@@ -32,8 +33,8 @@ export default function App() {
   const [categoryDetail, setCategoryDetail] = useState(null); // null | { categoryId, monthKey }
   // Subscreen state for Quests -> quest detail; cleared whenever we navigate away from it.
   const [questDetail, setQuestDetail] = useState(null); // null | { questId, autoRedeem? }
-  // Subscreen state for Home -> Settings (-> Categories); cleared whenever we navigate away.
-  const [settings, setSettings] = useState(null); // null | 'main' | 'categories'
+  // Subscreen state for Home -> Settings (-> Categories/Pairing); cleared whenever we navigate away.
+  const [settings, setSettings] = useState(null); // null | 'main' | 'categories' | 'pairing'
   // null | { type: 'log', initialType?, initialCategoryId? } | { type: 'txActions', tx } |
   // { type: 'budgetActions' } | { type: 'addCategory', context, initialGroup } | { type: 'newQuest', initialName? }
   const [sheet, setSheet] = useState(null);
@@ -137,10 +138,13 @@ export default function App() {
         <div style={{ position: 'absolute', inset: 0, background: T.frameBg, zIndex: 15, display: 'flex', flexDirection: 'column' }}>
           {settings === 'categories' ? (
             <Categories onBack={() => setSettings('main')} onOpenAddCategory={openAddCategory} />
+          ) : settings === 'pairing' ? (
+            <Pairing onBack={() => setSettings('main')} />
           ) : (
             <Settings
               onBack={() => setSettings(null)}
               onOpenCategories={() => setSettings('categories')}
+              onOpenPairing={() => setSettings('pairing')}
               onAdjustIncomeSplit={() => {
                 setSettings(null);
                 setScreen('onboarding');
