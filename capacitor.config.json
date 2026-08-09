@@ -1,0 +1,5 @@
+{
+  "appId": "com.arthquest.pwa",
+  "appName": "ArthQuest",
+  "webDir": "dist-android"
+}

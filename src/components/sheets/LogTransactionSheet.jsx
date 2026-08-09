@@ -72,6 +72,7 @@ export function LogTransactionSheet({ initialType = 'expense', initialCategoryId
       categoryId: type === 'income' ? null : categoryId,
       incomeCategoryId: type === 'income' ? categoryId : null,
       isRedemption: false,
+      deletedAt: null,
     };
     setState((s) => {
       const transactions = [transaction, ...s.transactions];
