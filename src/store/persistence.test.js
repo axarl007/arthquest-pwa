@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { loadState, saveState, clearState, freshState, STORAGE_KEY } from './persistence.js';
+import { loadState, saveState, clearState, freshState, ensureDeviceId, STORAGE_KEY } from './persistence.js';
 
 beforeEach(() => {
   localStorage.clear();
@@ -46,5 +46,31 @@ describe('clearState', () => {
     saveState({ ...freshState(), theme: 'vibrant' });
     clearState();
     expect(loadState()).toEqual(freshState());
+  });
+});
+
+describe('ensureDeviceId', () => {
+  it('returns a { deviceId } patch when the state has none', () => {
+    const patch = ensureDeviceId(freshState());
+    expect(Object.keys(patch)).toEqual(['deviceId']);
+    expect(typeof patch.deviceId).toBe('string');
+    expect(patch.deviceId).toBeTruthy();
+  });
+
+  it('returns null (nothing to patch) when a deviceId already exists', () => {
+    const state = { ...freshState(), deviceId: 'already-set' };
+    expect(ensureDeviceId(state)).toBeNull();
+  });
+
+  it('is pure — does not write to localStorage itself', () => {
+    ensureDeviceId(freshState());
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('returns a minimal patch, not a full state snapshot — dispatching it must never clobber a sibling effect\'s concurrent state change (regression: this exact bug silently wiped Onboarding\'s freshly-seeded categories on first launch)', () => {
+    const state = { ...freshState(), categories: [{ id: 'c1', name: 'Housing' }] };
+    const patch = ensureDeviceId(state);
+    const merged = { ...state, ...patch };
+    expect(merged.categories).toEqual(state.categories);
   });
 });

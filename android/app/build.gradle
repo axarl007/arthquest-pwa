@@ -1,4 +1,7 @@
 apply plugin: 'com.android.application'
+// NearbySync (ticket #18) is written in Kotlin; the plugin auto-adds a matching kotlin-stdlib
+// dependency, so no explicit stdlib version needs managing here.
+apply plugin: 'kotlin-android'
 
 android {
     namespace = "com.arthquest.pwa"
@@ -22,6 +25,19 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    // Matches the JDK actually used to run this build (setup-java pins 21 in CI; this sandbox's
+    // own JDK is 21 too) — AGP's Java compile task doesn't reliably honor a sourceCompatibility
+    // lower than the running JDK here, which caused a real CI failure (compileDebugJavaWithJavac
+    // silently compiled at 21 despite being set to 17 below, while compileDebugKotlin correctly
+    // used 17, tripping AGP's "Inconsistent JVM-target compatibility" check). Setting both to the
+    // JDK's own version removes the mismatch instead of fighting AGP's inference.
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    kotlinOptions {
+        jvmTarget = '21'
+    }
 }
 
 repositories {
@@ -36,6 +52,9 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // Nearby Connections transport for ticket #18's device-to-device sync — see
+    // NearbySyncPlugin.kt/NearbySyncManager.kt.
+    implementation 'com.google.android.gms:play-services-nearby:19.3.0'
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

@@ -18,22 +18,27 @@ import { Quests } from './screens/Quests.jsx';
 import { QuestDetail } from './screens/QuestDetail.jsx';
 import { Settings } from './screens/Settings.jsx';
 import { Categories } from './screens/Categories.jsx';
+import { Pairing } from './screens/Pairing.jsx';
 import { resolveTransactionSubject } from './domain/transactions.js';
 import { dueReminders } from './domain/reminders.js';
 import { todayIso } from './domain/format.js';
+import { useNearbySync } from './native/useNearbySync.js';
 
 const TAB_SCREENS = { home: Home, transactions: Transactions, budget: Budget, quests: Quests };
 
 export default function App() {
   const { state, setState } = useStore();
   const { T, C } = useTheme();
+  // Owns the Nearby Connections session (ticket #18) for the whole app — called once here, not
+  // per-screen, since it holds the plugin's singleton listener subscriptions and native session.
+  const nearby = useNearbySync();
   const [screen, setScreen] = useState(() => (state.onboarded ? 'home' : 'onboarding'));
   // Subscreen state for Budget -> category detail; cleared whenever we navigate away from it.
   const [categoryDetail, setCategoryDetail] = useState(null); // null | { categoryId, monthKey }
   // Subscreen state for Quests -> quest detail; cleared whenever we navigate away from it.
   const [questDetail, setQuestDetail] = useState(null); // null | { questId, autoRedeem? }
-  // Subscreen state for Home -> Settings (-> Categories); cleared whenever we navigate away.
-  const [settings, setSettings] = useState(null); // null | 'main' | 'categories'
+  // Subscreen state for Home -> Settings (-> Categories/Pairing); cleared whenever we navigate away.
+  const [settings, setSettings] = useState(null); // null | 'main' | 'categories' | 'pairing'
   // null | { type: 'log', initialType?, initialCategoryId? } | { type: 'txActions', tx } |
   // { type: 'budgetActions' } | { type: 'addCategory', context, initialGroup } | { type: 'newQuest', initialName? }
   const [sheet, setSheet] = useState(null);
@@ -137,10 +142,13 @@ export default function App() {
         <div style={{ position: 'absolute', inset: 0, background: T.frameBg, zIndex: 15, display: 'flex', flexDirection: 'column' }}>
           {settings === 'categories' ? (
             <Categories onBack={() => setSettings('main')} onOpenAddCategory={openAddCategory} />
+          ) : settings === 'pairing' ? (
+            <Pairing onBack={() => setSettings('main')} nearby={nearby} />
           ) : (
             <Settings
               onBack={() => setSettings(null)}
               onOpenCategories={() => setSettings('categories')}
+              onOpenPairing={() => setSettings('pairing')}
               onAdjustIncomeSplit={() => {
                 setSettings(null);
                 setScreen('onboarding');

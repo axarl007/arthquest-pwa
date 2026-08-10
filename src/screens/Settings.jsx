@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useStore } from '../store/useStore.js';
 import { useTheme } from '../theme/useTheme.js';
 import { SubscreenHeader } from '../components/ScreenHeader.jsx';
+import { SegmentedControl } from '../components/SegmentedControl.jsx';
 import { freshState } from '../store/persistence.js';
 import { buildBackupJson, buildTransactionsCsv, parseBackupJson } from '../domain/exportData.js';
 
@@ -37,7 +38,7 @@ function ensureNotificationPermission() {
   if (Notification.permission === 'default') Notification.requestPermission();
 }
 
-export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onReset }) {
+export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpenPairing, onReset }) {
   const { state, setState } = useStore();
   const { T, C } = useTheme();
   const [resetStep, setResetStep] = useState(0); // 0 closed, 1 first confirm, 2 final confirm
@@ -67,7 +68,16 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onRese
   };
 
   const confirmReset = () => {
-    setState(() => ({ ...freshState(), theme: state.theme }));
+    // Device identity (ticket #17) is this device's own setting, not budget data — preserved
+    // across a reset the same way theme is. Pairing is deliberately NOT preserved once sync
+    // exists (ticket #20): mergeState only ever additively unions records, so staying paired
+    // across a reset would mean the very next sync (the peer reconnecting, or either side
+    // hitting "Sync now") pulls the peer's untouched full history straight back in, silently
+    // undoing the reset. Unpairing forces a conscious re-pair before any data can flow again,
+    // matching how a brand-new pairing already shows "no data is shared yet" until that happens.
+    setState(() => ({
+      ...freshState(), theme: state.theme, deviceId: state.deviceId, deviceName: state.deviceName,
+    }));
     setResetStep(0);
     onReset();
   };
@@ -80,39 +90,15 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onRese
       <SubscreenHeader title="Settings" onBack={onBack} />
       <div style={{ flex: 1, overflow: 'auto', padding: '6px 20px 40px' }}>
         <div style={{ ...sectionLabelStyle, margin: '8px 0 8px' }}>Appearance</div>
-        <div style={{ display: 'flex', gap: 8, background: T.card, borderRadius: 100, padding: 5, marginBottom: 22 }}>
-          {THEME_OPTIONS.map((opt) => {
-            const active = state.theme === opt.key;
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => setState({ theme: opt.key })}
-                style={{ flex: 1, padding: 9, borderRadius: 100, border: 'none', background: active ? C.accent : 'none', color: active ? T.onAccentText : T.textSecondary, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
+        <div style={{ marginBottom: 22 }}>
+          <SegmentedControl options={THEME_OPTIONS} value={state.theme} onChange={(key) => setState({ theme: key })} />
         </div>
 
         <div style={{ fontSize: 12, fontWeight: 700, color: T.textTertiary, textTransform: 'uppercase', letterSpacing: '0.02em', marginBottom: 8 }}>
           Category icons
         </div>
-        <div style={{ display: 'flex', gap: 8, background: T.card, borderRadius: 100, padding: 5, marginBottom: 22 }}>
-          {ICON_STYLE_OPTIONS.map((opt) => {
-            const active = state.iconStyle === opt.key;
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => setState({ iconStyle: opt.key })}
-                style={{ flex: 1, padding: 9, borderRadius: 100, border: 'none', background: active ? C.accent : 'none', color: active ? T.onAccentText : T.textSecondary, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
+        <div style={{ marginBottom: 22 }}>
+          <SegmentedControl options={ICON_STYLE_OPTIONS} value={state.iconStyle} onChange={(key) => setState({ iconStyle: key })} />
         </div>
 
         <div style={sectionLabelStyle}>Reminders</div>
@@ -168,6 +154,16 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onRese
           {importError && <div style={{ fontSize: 12, color: C.danger, padding: '0 4px' }}>{importError}</div>}
         </div>
 
+        <div style={sectionLabelStyle}>Sync</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <button type="button" onClick={onOpenPairing} style={dataButtonStyle}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>smartphone</span>
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {state.pairedDevice ? `Paired with ${state.pairedDevice.name}` : 'Pair a device'}
+            </span>
+          </button>
+        </div>
+
         <div style={sectionLabelStyle}>Manage</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button type="button" onClick={onOpenCategories} style={dataButtonStyle}>Manage categories</button>
@@ -204,7 +200,7 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onRese
             <div style={{ fontSize: 13, color: T.textSecondary, marginTop: 6, lineHeight: 1.4 }}>
               {resetStep === 1
                 ? "This clears every transaction, quest and category, and restores ArthQuest to first-time setup."
-                : "This can't be undone. Every transaction, quest, category and reminder/data setting will be erased — your theme choice is the only thing kept."}
+                : "This can't be undone. Every transaction, quest, category and reminder/data setting will be erased, and this device will be unpaired (so a synced partner device can't bring the old data back) — only your theme and device name are kept."}
             </div>
             <button
               type="button"
