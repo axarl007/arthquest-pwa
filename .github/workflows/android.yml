@@ -17,28 +17,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      # ubuntu-latest ships a preinstalled Android SDK, so no separate SDK setup step is needed —
-      # only the JDK the Gradle build itself runs on.
-      - name: Build web assets for the Android target (base '/', not GitHub Pages' '/arthquest-pwa/')
-        run: npm run build:android
-
-      - name: Sync Capacitor's native Android project with the built web assets
-        run: npx cap sync android
+      - name: Set up Android build
+        uses: ./.github/actions/setup-android-build
 
       - name: Build debug APK
         working-directory: android
