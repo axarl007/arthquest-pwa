@@ -66,4 +66,25 @@ describe('buildPing / buildPong / parseNearbyMessage', () => {
     const payload = { transactions: [{ id: 't1' }], categories: [{ id: 'c1' }], incomeCategories: [], budgetAllocations: [] };
     expect(parseNearbyMessage(JSON.stringify({ type: 'state', payload, senderId: 'device-a' }))).toEqual({ type: 'state', payload, senderId: 'device-a' });
   });
+
+  it('rejects a state message wholesale when only ONE record in one array is malformed, never returning a partially-filtered payload (ticket #22: an interrupted/corrupted transfer must never partially merge)', () => {
+    const payload = {
+      transactions: [{ id: 't1' }, { id: 't2' }, { amount: 999 }], // one bad record among good ones
+      categories: [{ id: 'c1' }],
+      incomeCategories: [],
+      budgetAllocations: [],
+    };
+    const result = parseNearbyMessage(JSON.stringify({ type: 'state', payload, senderId: 'device-a' }));
+    expect(result).toBeNull(); // not a payload with only the 2 valid transactions kept
+  });
+
+  it('rejects truncated/incomplete JSON outright rather than salvaging whatever parsed (an interrupted transfer that somehow yields partial bytes must never partially apply)', () => {
+    const fullMessage = JSON.stringify({
+      type: 'state',
+      payload: { transactions: [{ id: 't1' }], categories: [], incomeCategories: [], budgetAllocations: [] },
+      senderId: 'device-a',
+    });
+    const truncated = fullMessage.slice(0, Math.floor(fullMessage.length / 2));
+    expect(parseNearbyMessage(truncated)).toBeNull();
+  });
 });

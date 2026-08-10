@@ -38,3 +38,25 @@ export function shortDeviceCode(deviceId) {
   const hex = deviceId.replace(/-/g, '').toUpperCase().slice(0, 8);
   return `${hex.slice(0, 4)}-${hex.slice(4, 8)}`;
 }
+
+/**
+ * The `pairedDevice` to store after confirming a scan (ticket #22's "unpair-then-repair correctly
+ * resets sync markers"). `lastSyncedAt` resets to null — forcing a fresh full sync on next
+ * connect — for every case except one: re-confirming with the SAME device this one is already
+ * paired to (id unchanged), where resetting it would just leave the Home indicator/nudge stuck on
+ * a marker that can never repopulate itself (useNearbySync's connection effect keys on
+ * id/name, so an unchanged id never fires a fresh 'connected' event to set it again — see
+ * Pairing.jsx's original bug report). An explicit unpair always clears `pairedDevice` to null
+ * first (see Pairing.jsx's `unpair`), so `currentPairedDevice` here is only ever non-null when the
+ * user is re-confirming without having explicitly unpaired — a genuine unpair-then-repair (even
+ * with the same device) always goes through the `null` branch below and correctly resets.
+ */
+export function nextPairedDevice(currentPairedDevice, scannedPeer, now = Date.now()) {
+  const isSamePeerStillPaired = currentPairedDevice?.id === scannedPeer.id;
+  return {
+    id: scannedPeer.id,
+    name: scannedPeer.name,
+    pairedAt: now,
+    lastSyncedAt: isSamePeerStillPaired ? currentPairedDevice.lastSyncedAt : null,
+  };
+}

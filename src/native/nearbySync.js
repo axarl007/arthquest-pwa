@@ -17,6 +17,8 @@ import { bytesToBase64, base64ToBytes } from '../domain/bytesCodec.js';
  *   disconnect(): Promise<void> — tears down any active/pending connection and stops
  *     advertising/discovery.
  *   send({ data: string }): Promise<void> — `data` is base64; rejects if nothing is connected.
+ *   openAppSettings(): Promise<void> — opens this app's system settings screen (ticket #22), for
+ *     a "permission denied/revoked" error's "Open Settings" action.
  *
  * Native events: 'connected' -> { remoteId }, 'disconnected' -> {}, 'received' -> { data: base64
  * string }, 'error' -> { message }.
@@ -52,4 +54,8 @@ export function onReceived(callback) {
 
 export function onError(callback) {
   return NearbySync.addListener('error', ({ message }) => callback(message));
+}
+
+export function openAppSettings() {
+  return NearbySync.openAppSettings();
 }

@@ -1,6 +1,9 @@
 package com.arthquest.pwa
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import com.getcapacitor.JSObject
@@ -33,6 +36,10 @@ private const val PERMISSION_ALIAS = "nearby"
  *       advertising/discovery.
  *   - send({ data: string }): Promise<void> — `data` is a base64-encoded byte payload sent to the
  *       currently connected endpoint; rejects if nothing is connected.
+ *   - openAppSettings(): Promise<void> — opens this app's system settings screen (ticket #22), so
+ *       a user whose "nearby" permission was denied or later revoked via Android's own Settings
+ *       has a direct path back to re-grant it, rather than only a "requiresPermission" error with
+ *       no actionable next step.
  *
  * Events (via addListener): 'connected' -> { remoteId }, 'disconnected' -> {}, 'received' ->
  * { data: base64 string }, 'error' -> { message }.
@@ -183,5 +190,30 @@ class NearbySyncPlugin : Plugin() {
     override fun handleOnDestroy() {
         stopSession()
         super.handleOnDestroy()
+    }
+
+    // ACTION_APPLICATION_DETAILS_SETTINGS (not a generic Settings.ACTION_SETTINGS) lands the user
+    // directly on THIS app's own permissions page — one tap from there to re-grant "Nearby
+    // devices"/location, instead of a generic settings root they'd have to navigate from scratch.
+    // FLAG_ACTIVITY_NEW_TASK is required since this starts an Activity from the plugin's
+    // application Context, not from an existing Activity's own task stack.
+    @PluginMethod
+    fun openAppSettings(call: PluginCall) {
+        // startActivity throws (rather than returning a failed Task/result) if nothing resolves
+        // this intent — an ordinary Android device always has a Settings app, but a stripped-down
+        // AOSP build, Android TV/Automotive, or a locked-down enterprise ROM might not. Capacitor
+        // dispatches plugin methods on a background handler thread that doesn't wrap this call in
+        // its own try/catch, so an uncaught exception here would crash the whole app instead of
+        // surfacing as the rejected promise openSettings() in useNearbySync.js expects.
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            intent.data = Uri.fromParts("package", context.packageName, null)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            call.resolve()
+        } catch (e: Exception) {
+            Log.w(TAG, "openAppSettings failed: ${e.message}")
+            call.reject("Could not open settings: ${e.message}")
+        }
     }
 }

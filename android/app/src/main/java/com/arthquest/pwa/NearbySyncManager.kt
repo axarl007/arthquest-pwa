@@ -136,8 +136,15 @@ class NearbySyncManager(
             listener.onReceived(bytes)
         }
 
+        // Single small BYTES payloads deliver whole-or-not-at-all — unlike FILE/STREAM payloads
+        // (which this transport never uses), there's no partial/chunked delivery for BYTES to
+        // track here. This is what actually satisfies ticket #22's "an interrupted transfer
+        // leaves both devices' data unchanged" requirement at the transport layer: a connection
+        // dropped mid-send means onPayloadReceived above simply never fires for that payload —
+        // there is no such thing as a partially-received sync message reaching the JS merge layer
+        // to begin with. The JS side (domain/pingProtocol.js's parseNearbyMessage) still validates
+        // defensively on top of this, but the real guarantee is architectural, not a check.
         override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {
-            // Single small byte payloads complete in one update — nothing to track mid-transfer.
         }
     }
 

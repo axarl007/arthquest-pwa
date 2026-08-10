@@ -9,6 +9,13 @@
  *   - state: the real sync payload (ticket #20) — a device's full transactions/categories/
  *     incomeCategories/budgetAllocations, exchanged automatically once a connection is
  *     established and merged via `domain/sync.js`'s `mergeState`/`applyIncomingSync`.
+ *
+ * `parseNearbyMessage`'s 'state' validation is all-or-nothing by construction (ticket #22): any
+ * malformed/wrong-shaped field rejects the ENTIRE message (returns null), never a partially
+ * filtered one — so a caller either applies a fully-validated payload or applies nothing at all,
+ * with no code path that could merge in only some of a message. Combined with BYTES payloads
+ * delivering whole-or-not-at-all at the transport layer (see NearbySyncManager.kt's
+ * onPayloadTransferUpdate), an interrupted transfer can never leave a partial merge applied.
  */
 export function buildPing(nonce) {
   return JSON.stringify({ type: 'ping', nonce });
