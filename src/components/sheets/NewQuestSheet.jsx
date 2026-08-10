@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../../store/useStore.js';
-import { useTheme } from '../../theme/useTheme.js';
+import { useTheme, nativeColorScheme } from '../../theme/useTheme.js';
 import { createQuest } from '../../domain/quests.js';
 import { todayIso } from '../../domain/format.js';
 import { BottomSheet } from './BottomSheet.jsx';
@@ -68,7 +68,7 @@ export function NewQuestSheet({ initialName = '', onClose }) {
         value={targetDate}
         onChange={(e) => setTargetDate(e.target.value)}
         // colorScheme follows the app's theme — see LogTransactionSheet's date input for why.
-        style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 13, fontSize: 13, color: T.text, outline: 'none', colorScheme: theme === 'vibrant' ? 'light' : 'dark' }}
+        style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 13, fontSize: 13, color: T.text, outline: 'none', colorScheme: nativeColorScheme(theme) }}
       />
 
       <button

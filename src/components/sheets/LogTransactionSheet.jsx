@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../../store/useStore.js';
-import { useTheme } from '../../theme/useTheme.js';
+import { useTheme, nativeColorScheme } from '../../theme/useTheme.js';
 import { GROUP_LABELS, makeId } from '../../domain/categories.js';
 import { withRecomputedQuestStatus } from '../../domain/quests.js';
 import { QUEST_COLOR } from '../../theme/tokens.js';
@@ -196,7 +196,7 @@ export function LogTransactionSheet({ initialType = 'expense', initialCategoryId
         // popup and calendar-icon affordance render in the matching UA palette under Vibrant
         // (light) too — the default browser popup otherwise looks jarringly out of place against
         // every other control here.
-        style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 12, fontSize: 13, color: T.text, marginTop: 14, outline: 'none', colorScheme: theme === 'vibrant' ? 'light' : 'dark' }}
+        style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 12, fontSize: 13, color: T.text, marginTop: 14, outline: 'none', colorScheme: nativeColorScheme(theme) }}
       />
       <input
         type="text"

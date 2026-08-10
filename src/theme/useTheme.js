@@ -12,3 +12,13 @@ export function useTheme() {
     [theme, iconStyle],
   );
 }
+
+/**
+ * CSS `color-scheme` value for the app's current theme, for native browser controls (e.g.
+ * `<input type="date">`) whose popup/affordance chrome is UA-drawn and doesn't otherwise pick up
+ * this app's own dark/vibrant tokens. Single source of truth so every native-control call site
+ * stays in sync if the theme set ever changes, instead of each one hardcoding its own ternary.
+ */
+export function nativeColorScheme(theme) {
+  return theme === 'vibrant' ? 'light' : 'dark';
+}
