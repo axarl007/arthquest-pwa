@@ -68,10 +68,15 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
   };
 
   const confirmReset = () => {
-    // Device identity and pairing (ticket #17) are this device's own settings, not budget data —
-    // preserved across a reset the same way theme is, so resetting doesn't force re-pairing.
+    // Device identity (ticket #17) is this device's own setting, not budget data — preserved
+    // across a reset the same way theme is. Pairing is deliberately NOT preserved once sync
+    // exists (ticket #20): mergeState only ever additively unions records, so staying paired
+    // across a reset would mean the very next sync (the peer reconnecting, or either side
+    // hitting "Sync now") pulls the peer's untouched full history straight back in, silently
+    // undoing the reset. Unpairing forces a conscious re-pair before any data can flow again,
+    // matching how a brand-new pairing already shows "no data is shared yet" until that happens.
     setState(() => ({
-      ...freshState(), theme: state.theme, deviceId: state.deviceId, deviceName: state.deviceName, pairedDevice: state.pairedDevice,
+      ...freshState(), theme: state.theme, deviceId: state.deviceId, deviceName: state.deviceName,
     }));
     setResetStep(0);
     onReset();
@@ -195,7 +200,7 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
             <div style={{ fontSize: 13, color: T.textSecondary, marginTop: 6, lineHeight: 1.4 }}>
               {resetStep === 1
                 ? "This clears every transaction, quest and category, and restores ArthQuest to first-time setup."
-                : "This can't be undone. Every transaction, quest, category and reminder/data setting will be erased — your theme choice and device pairing are the only things kept."}
+                : "This can't be undone. Every transaction, quest, category and reminder/data setting will be erased, and this device will be unpaired (so a synced partner device can't bring the old data back) — only your theme and device name are kept."}
             </div>
             <button
               type="button"

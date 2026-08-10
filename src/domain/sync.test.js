@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeState } from './sync.js';
+import { mergeState, syncPayload, applyIncomingSync } from './sync.js';
 import { ensureMonthSeeded, saveAllocations } from './allocations.js';
 import { cumulativePosition } from './transactions.js';
 
@@ -283,5 +283,86 @@ describe('mergeState — determinism and idempotency', () => {
     const once = mergeState(local, remote);
     const twice = mergeState(once, remote);
     expect(twice).toEqual(once);
+  });
+});
+
+describe('syncPayload', () => {
+  it('extracts exactly the four synced fields, ignoring everything else in state', () => {
+    const full = state({
+      transactions: [tx('t1')],
+      categories: [cat('c1')],
+      incomeCategories: [income('i1')],
+      budgetAllocations: [alloc('a1')],
+      deviceId: 'device-1',
+      deviceName: 'My Phone',
+      pairedDevice: { id: 'device-2', name: 'Other Phone', pairedAt: 1, lastSyncedAt: null },
+      theme: 'dark',
+    });
+    expect(syncPayload(full)).toEqual({
+      transactions: [tx('t1')],
+      categories: [cat('c1')],
+      incomeCategories: [income('i1')],
+      budgetAllocations: [alloc('a1')],
+    });
+  });
+});
+
+describe('applyIncomingSync', () => {
+  it('merges the remote payload into local state and bumps pairedDevice.lastSyncedAt to now, when senderId matches the paired device', () => {
+    const local = state({
+      transactions: [tx('t1')],
+      pairedDevice: { id: 'device-2', name: 'Other Phone', pairedAt: 1, lastSyncedAt: 1000 },
+    });
+    const remotePayload = syncPayload(state({ transactions: [tx('t2')] }));
+    const result = applyIncomingSync(local, remotePayload, 'device-2', 9999);
+    expect(result.transactions.map((t) => t.id).sort()).toEqual(['t1', 't2']);
+    expect(result.pairedDevice).toEqual({ id: 'device-2', name: 'Other Phone', pairedAt: 1, lastSyncedAt: 9999 });
+  });
+
+  it('is a hard no-op when pairedDevice is null — a stray in-flight message from a just-unpaired peer must not merge in and resurrect wiped data', () => {
+    const local = state({ transactions: [tx('t1')], pairedDevice: null });
+    const remotePayload = syncPayload(state({ transactions: [tx('t2')] }));
+    const result = applyIncomingSync(local, remotePayload, 'device-2', 9999);
+    expect(result.pairedDevice).toBeNull();
+    expect(result.transactions).toEqual([tx('t1')]); // t2 from the stray message must NOT appear
+    expect(result).toBe(local); // literally unchanged, not just content-equal
+  });
+
+  it('is a hard no-op when senderId does not match the currently paired device — a stray message from a device just replaced by re-pairing must not merge in', () => {
+    // Was paired+syncing with device-2 (device B); user has since re-paired to device-3 (device
+    // C), but a genuine in-flight message from B — still a real, correctly-addressed message,
+    // just stale relative to the *current* pairing — arrives after that.
+    const local = state({
+      transactions: [tx('t1')],
+      pairedDevice: { id: 'device-3', name: 'Device C', pairedAt: 5, lastSyncedAt: null },
+    });
+    const staleMessageFromB = syncPayload(state({ transactions: [tx('t2')] }));
+    const result = applyIncomingSync(local, staleMessageFromB, 'device-2', 9999);
+    expect(result).toBe(local);
+    expect(result.transactions).toEqual([tx('t1')]);
+    expect(result.pairedDevice.lastSyncedAt).toBeNull(); // must not look synced with C from B's data
+  });
+
+  it('does not resurrect data wiped by a reset even if the old peer\'s in-flight message arrives right after unpairing', () => {
+    // Mirrors Settings.jsx's confirmReset: wipe local data AND unpair in the same patch.
+    const justReset = state({ transactions: [], categories: [], pairedDevice: null });
+    const staleMessageFromOldPeer = syncPayload(state({
+      transactions: [tx('t1'), tx('t2')],
+      categories: [cat('c1')],
+    }));
+    const result = applyIncomingSync(justReset, staleMessageFromOldPeer, 'device-2', 9999);
+    expect(result.transactions).toEqual([]);
+    expect(result.categories).toEqual([]);
+  });
+
+  it('a merge with no new data from the peer still bumps lastSyncedAt but never duplicates or changes records (safe to trigger repeatedly)', () => {
+    const local = state({
+      transactions: [tx('t1')],
+      pairedDevice: { id: 'device-2', name: 'Other Phone', pairedAt: 1, lastSyncedAt: 1000 },
+    });
+    const remotePayload = syncPayload(state({ transactions: [tx('t1')] }));
+    const result = applyIncomingSync(local, remotePayload, 'device-2', 5000);
+    expect(result.transactions).toEqual([tx('t1')]);
+    expect(result.pairedDevice.lastSyncedAt).toBe(5000);
   });
 });

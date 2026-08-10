@@ -42,10 +42,10 @@ const NEARBY_STATUS_LABEL = {
 /**
  * One-time device pairing (ticket #17): shows this device's own QR (encoding its stable deviceId
  * + a user-editable display name) for the other device to scan, or scans the other device's QR
- * via the camera. Identity exchange only, but once paired also surfaces the raw transport session
- * (ticket #18, via the `nearby` prop from useNearbySync — see App.jsx) so a paired device can be
- * test-pinged to confirm the two phones actually reach each other. No real merge/sync happens
- * here either — that's #20.
+ * via the camera. Once paired, also surfaces the transport session (ticket #18, via the `nearby`
+ * prop from useNearbySync — see App.jsx): a paired device can be test-pinged to confirm the two
+ * phones actually reach each other, and real data sync (ticket #20) happens automatically on
+ * connect, with "Sync now" as a manual re-trigger for edits made after that.
  */
 export function Pairing({ onBack, nearby }) {
   const { state, setState } = useStore();
@@ -170,7 +170,23 @@ export function Pairing({ onBack, nearby }) {
   }, [tab, pendingPair, visible, state.deviceId]);
 
   const confirmPair = () => {
-    setState({ pairedDevice: { id: pendingPair.id, name: pendingPair.name, pairedAt: Date.now() } });
+    // lastSyncedAt (ticket #20) starts null for a genuinely new pairing — this device hasn't
+    // exchanged any data with the newly paired one yet, whether this is a first-ever pairing or a
+    // re-pair after unpairing. Re-confirming with the SAME device it's already paired to (the
+    // scanner only blocks scanning your own code, not re-scanning your current partner's) is not
+    // that — it doesn't change useNearbySync's connection effect (id/name are unchanged, so its
+    // dependency array doesn't fire a fresh connect), so a reset lastSyncedAt here would never get
+    // repopulated until some unrelated reconnect happened, leaving "Last synced" blank for no
+    // reason. Carrying the existing lastSyncedAt forward in that case keeps it accurate instead.
+    const samePeer = state.pairedDevice?.id === pendingPair.id;
+    setState({
+      pairedDevice: {
+        id: pendingPair.id,
+        name: pendingPair.name,
+        pairedAt: Date.now(),
+        lastSyncedAt: samePeer ? state.pairedDevice.lastSyncedAt : null,
+      },
+    });
     setPendingPair(null);
     setTab('mine');
   };
@@ -232,17 +248,33 @@ export function Pairing({ onBack, nearby }) {
             )}
             {nearby.status === 'connected' && (
               <>
-                <button
-                  type="button"
-                  onClick={nearby.sendPing}
-                  style={{ marginTop: 10, padding: '9px 14px', borderRadius: 100, border: 'none', background: C.accent, color: T.onAccentText, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
-                >
-                  Send test ping
-                </button>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={nearby.sync}
+                    style={{ marginTop: 10, padding: '9px 14px', borderRadius: 100, border: 'none', background: C.accent, color: T.onAccentText, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    Sync now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={nearby.sendPing}
+                    style={{ marginTop: 10, padding: '9px 14px', borderRadius: 100, border: `1px solid ${T.border}`, background: 'none', color: T.textSecondary, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    Send test ping
+                  </button>
+                </div>
                 {nearby.lastRoundTripMs !== null && (
                   <div style={{ fontSize: 12, color: T.textTertiary, marginTop: 8 }}>Echo received in {nearby.lastRoundTripMs}ms</div>
                 )}
               </>
+            )}
+            {/* Full "Synced Xm ago" / stale-sync nudge treatment is ticket #21 — this is just
+                enough to confirm a sync actually landed while testing this ticket (#20). */}
+            {state.pairedDevice?.lastSyncedAt && (
+              <div style={{ fontSize: 12, color: T.textTertiary, marginTop: 8 }}>
+                Last synced {new Date(state.pairedDevice.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </div>
             )}
           </div>
         )}
@@ -296,8 +328,8 @@ export function Pairing({ onBack, nearby }) {
           <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Pair with {pendingPair.name}?</div>
           <div style={{ fontSize: 13, color: T.textTertiary, marginTop: 6, lineHeight: 1.4 }}>
             {state.pairedDevice
-              ? `This replaces your current pairing with ${state.pairedDevice.name}.`
-              : 'No data is shared yet — this only remembers the device for now.'}
+              ? `This replaces your current pairing with ${state.pairedDevice.name}. Once connected, your data syncs automatically.`
+              : "Once connected, your budget data syncs automatically — no separate 'share' step."}
           </div>
           <button
             type="button"

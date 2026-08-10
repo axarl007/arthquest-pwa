@@ -4,7 +4,8 @@ import {
   startAdvertisingAndDiscovery, disconnect, sendBytes, onConnected, onDisconnected, onReceived, onError,
 } from './nearbySync.js';
 import { useForegroundVisible } from './useForegroundVisible.js';
-import { buildPing, buildPong, parseNearbyMessage } from '../domain/pingProtocol.js';
+import { buildPing, buildPong, buildStateMessage, parseNearbyMessage } from '../domain/pingProtocol.js';
+import { syncPayload, applyIncomingSync } from '../domain/sync.js';
 
 /** Maps a raw plugin-rejection message to user-facing copy — "requiresPermission" and Capacitor's
  * own "not implemented on web" (this app's PWA build has no native NearbySync — Android-only,
@@ -18,21 +19,47 @@ function friendlyErrorMessage(message) {
 /**
  * Manages the Nearby Connections session lifecycle (ticket #18) for the whole app: starts
  * advertising/discovering whenever this device is paired and the app is foregrounded, tears down
- * on backgrounding/unpairing/unmount, and answers pings with pongs so the connection can be
- * verified end to end (no real merge/sync protocol exists yet — that's #20).
+ * on backgrounding/unpairing/unmount, answers pings with pongs so raw connectivity can be verified
+ * end to end, and (ticket #20) automatically exchanges + merges each device's data the moment a
+ * connection is established — see domain/sync.js for the merge logic itself.
  *
  * Call this once, at the top of the app (App.jsx) — it owns the plugin's singleton listener
  * subscriptions and native session, so a second call site would double-subscribe and
  * double-start it.
  */
 export function useNearbySync() {
-  const { state } = useStore();
+  const { state, setState } = useStore();
   const [status, setStatus] = useState('idle'); // 'idle' | 'connecting' | 'connected' | 'error'
   const [remoteName, setRemoteName] = useState(null);
   const [error, setError] = useState(null);
   const [lastRoundTripMs, setLastRoundTripMs] = useState(null);
   const visible = useForegroundVisible();
   const pendingPingRef = useRef(null); // { nonce, startedAt } | null
+  // Always-current `state`, read (never written) from the async connection-lifecycle callbacks
+  // below — those callbacks are created once per effect run and would otherwise close over
+  // whatever `state` was at that moment, sending a stale snapshot if the user edited data
+  // between pairing and the peer actually coming into range. The *write* side (applying an
+  // incoming sync) doesn't need this: it uses setState's updater form, which always sees the
+  // latest committed state regardless of when the callback was created.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Encodes and sends this device's current data as a sync 'state' message (ticket #20) — shared
+  // by the automatic on-connect send below and the manual `sync()` re-trigger, so the wire
+  // encoding only needs to change in one place. Known v1 limitation, called out explicitly by
+  // ticket #20 itself ("full state exchange is acceptable for v1 given expected data volume,
+  // note if this needs revisiting later"): this sends the *entire* history every time, as one
+  // Nearby Connections BYTES payload — Android's docs describe BYTES as meant for small
+  // immediate-delivery messages, not an unbounded amount of data, so a very long-lived account
+  // could in principle need FILE/STREAM payloads or a real diff protocol instead of this. Not
+  // reproducible without physical hardware and years of accumulated data, so left as documented
+  // debt rather than guessed at.
+  const sendCurrentState = (onFailure) => {
+    const message = buildStateMessage(syncPayload(stateRef.current), stateRef.current.deviceId);
+    sendBytes(new TextEncoder().encode(message)).catch(onFailure);
+  };
 
   const pairedDeviceId = state.pairedDevice?.id ?? null;
   const pairedDeviceName = state.pairedDevice?.name ?? null;
@@ -61,6 +88,18 @@ export function useNearbySync() {
       setStatus('connected');
       setRemoteName(pairedDeviceName);
       setError(null); // clear anything left over from before this (re)connection
+      // Sync (ticket #20): send this device's current data the moment a connection is
+      // established. The peer does the same on its own 'connected' event, so both sides
+      // converge without any host/client negotiation — see the module doc comment on
+      // domain/sync.js for why mergeState is safe to run from either direction. Most send
+      // failures (e.g. sendPayload actually failing on the wire) do surface later via the
+      // 'error' event handled below, not through this promise — but a handleOnPause() torn down
+      // the native session in the brief window before this reaches it rejects synchronously
+      // with no matching 'error' event, so this specific send is silently missed rather than
+      // reported. Not fixed: the connection is already gone in that case (the app backgrounded),
+      // and the visibility-driven effect below re-connects and re-sends on the next foreground,
+      // so this self-heals rather than leaving sync permanently stuck.
+      sendCurrentState(() => {});
     });
     connectedSub.catch(() => {});
     const disconnectedSub = onDisconnected(() => {
@@ -88,6 +127,18 @@ export function useNearbySync() {
       } else if (message.type === 'pong' && pendingPingRef.current?.nonce === message.nonce) {
         setLastRoundTripMs(Date.now() - pendingPingRef.current.startedAt);
         pendingPingRef.current = null;
+      } else if (message.type === 'state') {
+        // The merge+persist step (ticket #20): setState's updater form always runs against the
+        // latest committed state, not whatever `state` this closure captured or this effect
+        // instance was started with — deliberately so, since Capacitor's addListener can leave a
+        // stale session's listener briefly still registered after re-pairing to a different
+        // device while still connected to the old one. applyIncomingSync itself re-checks
+        // `message.senderId` against *that* latest state's actual paired device (not this
+        // closure's possibly-stale `pairedDeviceId`) before merging anything in — see its own doc
+        // comment for why the check has to live there to actually close the race. lastSyncedAt
+        // only advances on a real merge — never merely on 'connected' — so a transfer that never
+        // arrives leaves it untouched.
+        setState((s) => applyIncomingSync(s, message.payload, message.senderId));
       }
     });
     receivedSub.catch(() => {});
@@ -105,7 +156,7 @@ export function useNearbySync() {
       }
       disconnect().catch(() => {});
     };
-  }, [pairedDeviceId, pairedDeviceName, state.deviceId, visible]);
+  }, [pairedDeviceId, pairedDeviceName, state.deviceId, visible, setState]);
 
   const sendPing = () => {
     const nonce = crypto.randomUUID();
@@ -117,5 +168,15 @@ export function useNearbySync() {
     });
   };
 
-  return { status, remoteName, error, lastRoundTripMs, sendPing };
+  // Re-sends this device's current data on an already-open connection — the automatic send in
+  // onConnected above only fires once, when the connection is first established, so this is the
+  // way to push new local edits made *after* that (both apps left open and connected) without a
+  // full disconnect/reconnect cycle. Safe to call as often as wanted: mergeState is idempotent,
+  // so the peer applying the same data twice is a no-op (ticket #19/#20's own requirement).
+  const sync = () => {
+    setError(null);
+    sendCurrentState((err) => setError(friendlyErrorMessage(err?.message ?? String(err))));
+  };
+
+  return { status, remoteName, error, lastRoundTripMs, sendPing, sync };
 }

@@ -217,3 +217,44 @@ export function mergeState(local, remote, lastSyncedAt = null) {
   const budgetAllocations = mergeBudgetAllocations(local.budgetAllocations, remote.budgetAllocations);
   return { transactions, categories, incomeCategories, budgetAllocations };
 }
+
+/**
+ * The four fields exchanged over the transport (ticket #20) — a subset of the full app state,
+ * matching exactly what `mergeState` reads and returns. Kept as one function so the wire payload
+ * and the merge input/output shape can never drift apart from each other.
+ */
+export function syncPayload(state) {
+  return {
+    transactions: state.transactions,
+    categories: state.categories,
+    incomeCategories: state.incomeCategories,
+    budgetAllocations: state.budgetAllocations,
+  };
+}
+
+/**
+ * The full state patch to apply once a peer's `syncPayload` has actually arrived and been merged
+ * (ticket #20) — the merged four arrays, plus this device's per-peer `lastSyncedAt` marker bumped
+ * to `now`. Deliberately never called just because a connection was established: only a received
+ * payload reaches this function, so a dropped transfer leaves `lastSyncedAt` untouched rather than
+ * falsely marking itself synced.
+ *
+ * A hard no-op — `localState` returned completely unchanged — unless `senderId` (the sender's own
+ * stable deviceId, stamped on the wire message by `buildStateMessage`) matches
+ * `localState.pairedDevice.id` exactly, checked against `localState` itself rather than trusting
+ * the caller to have already verified this against some other (possibly stale) value. That
+ * matters because the caller (useNearbySync.js) reads state via a React effect closure that can
+ * genuinely lag behind: re-pairing to a different device while still connected to the old one
+ * leaves a window where the old device's listener is still registered and a real in-flight
+ * message from it can still arrive after the pairing has already moved on — checking here,
+ * against whatever `localState` this call is actually being applied to (via setState's updater
+ * form, which is always current), is what actually closes that race rather than merely relocating
+ * it. The same guard also covers the unpair case (`localState.pairedDevice` null never matches
+ * any `senderId`) — e.g. right after Settings.jsx's confirmReset explicitly unpairs *because* it
+ * just wiped local data, so a stray message from the old peer must not resurrect it.
+ */
+export function applyIncomingSync(localState, remotePayload, senderId, now = Date.now()) {
+  if (localState.pairedDevice?.id !== senderId) return localState;
+  const merged = mergeState(localState, remotePayload, localState.pairedDevice.lastSyncedAt);
+  return { ...merged, pairedDevice: { ...localState.pairedDevice, lastSyncedAt: now } };
+}

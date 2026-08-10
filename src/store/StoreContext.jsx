@@ -4,6 +4,13 @@ import { StoreContext } from './context.js';
 
 function reducer(state, patch) {
   const next = typeof patch === 'function' ? patch(state) : patch;
+  // A functional updater that deliberately returns the very same `state` object it was given
+  // (e.g. domain/sync.js's applyIncomingSync, on a stray/rejected sync message — see its own doc
+  // comment) means "nothing changed here at all," not "here's a same-content replacement" —
+  // preserving that reference instead of spreading into a new object skips the saveState effect
+  // and re-render below for what both are otherwise a genuine no-op. Every other caller in this
+  // app returns a fresh partial-field object, so `next === state` never happens by accident.
+  if (next === state) return state;
   return { ...state, ...next };
 }
 
