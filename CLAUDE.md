@@ -20,6 +20,7 @@ Work is tracked as GitHub issues, each a tracer-bullet vertical slice with accep
 8. **Default theme/icon-style**: Dark + Cartoon. (Android's `AppPreferences.kt` actually defaults to Vibrant+Flat — that's a deliberate divergence, not a bug: the mockup's own default state won for this specific question.)
 9. **Deploy URL**: default `github.io` subpath (`https://axarl007.github.io/arthquest-pwa/`), no custom domain. Vite `base` is `/arthquest-pwa/` — see the gotcha below.
 10. **Never push to `main` directly.** All work lands on a feature branch, then a PR is opened for the user to review and merge themselves. Don't call `create_branch` targeting `main` — it already exists; a stray call once accidentally fast-forwarded it to a feature commit and briefly fired the deploy workflow before Pages was even enabled. Just push the feature branch and open a normal PR.
+11. **Don't schedule anything (send_later, a trigger, a self check-in) without asking the user first.** This applies even when watching a PR you opened yourself and would otherwise self-arm a check-in per the drive-to-green process — ask before the first one, every session.
 
 ## Data model conventions
 
