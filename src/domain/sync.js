@@ -258,3 +258,92 @@ export function applyIncomingSync(localState, remotePayload, senderId, now = Dat
   const merged = mergeState(localState, remotePayload, localState.pairedDevice.lastSyncedAt);
   return { ...merged, pairedDevice: { ...localState.pairedDevice, lastSyncedAt: now } };
 }
+
+/**
+ * How stale a sync has to be, with pending local changes outstanding, before the UI nudges the
+ * user to open the app on their paired device (ticket #21). No Android precedent for this exact
+ * number — sync is new to this app (#17-#20), not a ported feature — chosen to match the day-
+ * granular cadence the rest of this app's reminders already use (see domain/reminders.js).
+ */
+export const STALE_SYNC_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+/** True if `timestamp` represents something touched after `lastSyncedAt` — null/undefined never
+ * counts (nothing to compare), and a null `lastSyncedAt` (never synced) means anything with a
+ * real timestamp counts. Shared by every field `pendingChangeCount` below checks. */
+function touchedSinceSync(timestamp, lastSyncedAt) {
+  return timestamp != null && (lastSyncedAt == null || timestamp > lastSyncedAt);
+}
+
+/**
+ * How many local records were created or changed after the paired device's `lastSyncedAt` and
+ * so haven't been confirmed to reach it yet (ticket #21). "Confirmed" is only as strong as the
+ * marker itself already is (see applyIncomingSync's doc comment) — each device's own
+ * `lastSyncedAt` advances when IT receives and merges the peer's payload, not from an explicit
+ * ack of its own send, which in practice lands at essentially the same moment since both sends
+ * fire together on connect (#20). Zero when unpaired — there's no peer to be behind on.
+ *
+ * Relies on `createdAt` existing on categories/incomeCategories (added for this ticket — see
+ * domain/categories.js's seedDefaultsIfNeeded doc comment) and on budgetAllocations (added
+ * alongside `updatedAt` in domain/allocations.js — the two answer different questions, see that
+ * file's own note); a record from before these fields existed simply never counts as pending, the
+ * same reasonable default `archivedAt ?? null` already uses elsewhere for pre-existing data.
+ *
+ * Known accepted limitation, inherent to every wall-clock timestamp this app already persists
+ * (not something new here): if the two paired devices' clocks are meaningfully skewed, a record
+ * created on the *other*, ahead-of-time device can carry a `createdAt` later than this device's
+ * own just-stamped `lastSyncedAt`, permanently over-counting it as pending (and eventually
+ * false-triggering the stale-sync nudge) even though it's genuinely synced. No worse than the
+ * clock-skew exposure `archivedAt`/`deletedAt` LWW-merge already has in `mergeState` itself —
+ * not fixed here, since a real fix needs a logical/vector clock, well beyond this ticket's scope.
+ */
+export function pendingChangeCount(state) {
+  if (!state.pairedDevice) return 0;
+  const lastSyncedAt = state.pairedDevice.lastSyncedAt;
+  let count = 0;
+  for (const t of state.transactions) {
+    if (touchedSinceSync(t.createdAt, lastSyncedAt) || touchedSinceSync(t.deletedAt, lastSyncedAt)) count++;
+  }
+  for (const c of state.categories) {
+    if (touchedSinceSync(c.createdAt, lastSyncedAt) || touchedSinceSync(c.archivedAt, lastSyncedAt)) count++;
+  }
+  for (const c of state.incomeCategories) {
+    if (touchedSinceSync(c.createdAt, lastSyncedAt)) count++;
+  }
+  for (const a of state.budgetAllocations) {
+    // createdAt, not updatedAt: ensureMonthSeeded deliberately carries an old updatedAt forward
+    // on a mechanical month-copy (see its own doc comment — that's for merge priority, not this),
+    // but always mints a genuinely new id+createdAt, so createdAt is the field that actually
+    // answers "has the peer ever seen this row."
+    if (touchedSinceSync(a.createdAt, lastSyncedAt)) count++;
+  }
+  return count;
+}
+
+/** "Synced just now" / "Synced Xm ago" / "Synced Xh ago" / "Synced Xd ago" / "Not yet synced" —
+ * the Home indicator's exact copy (ticket #21). `now` is a parameter (not read internally) so
+ * this stays pure and testable; the caller re-renders on a timer to keep it advancing live. */
+export function formatSyncedLabel(lastSyncedAt, now = Date.now()) {
+  if (lastSyncedAt == null) return 'Not yet synced';
+  const minutes = Math.floor(Math.max(0, now - lastSyncedAt) / 60000);
+  if (minutes < 1) return 'Synced just now';
+  if (minutes < 60) return `Synced ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Synced ${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `Synced ${days}d ago`;
+}
+
+/**
+ * True when the paired device should be nudged to open its app: there are pending local changes
+ * and it's been at least `STALE_SYNC_THRESHOLD_MS` since the last successful sync — or since
+ * pairing, if a sync has never happened at all. `pendingCount` defaults to a fresh
+ * `pendingChangeCount(state)` call, but a caller that already computed it for its own display
+ * (e.g. Home.jsx's "N pending" text) should pass it through rather than paying for the same
+ * transactions/categories/incomeCategories/budgetAllocations scan twice per render.
+ */
+export function shouldNudgeStaleSync(state, now = Date.now(), pendingCount = pendingChangeCount(state)) {
+  if (!state.pairedDevice) return false;
+  if (pendingCount === 0) return false;
+  const referencePoint = state.pairedDevice.lastSyncedAt ?? state.pairedDevice.pairedAt;
+  return now - referencePoint >= STALE_SYNC_THRESHOLD_MS;
+}

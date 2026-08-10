@@ -60,8 +60,12 @@ export function toggleArchived(categories, categoryId, now = Date.now()) {
  * matching the design spec's own buildCategories()/buildIncomeCats() — and persisted on the
  * category/income-category object rather than recomputed from display position, since sort order
  * (e.g. onboarding's alphabetical rows) must not change which color a category has.
+ *
+ * `createdAt` likewise has no Android counterpart — it exists purely so sync's pending-change
+ * indicator (ticket #21, `domain/sync.js`'s `pendingChangeCount`) can tell a category created
+ * after the last sync apart from one that already reached the peer.
  */
-export function seedDefaultsIfNeeded(state) {
+export function seedDefaultsIfNeeded(state, now = Date.now()) {
   const patch = {};
   const hasBudgetCategory = state.categories.some((c) => c.type === 'budget');
   let nextColorIndex = state.categories.length + state.incomeCategories.length;
@@ -75,6 +79,7 @@ export function seedDefaultsIfNeeded(state) {
       archived: false,
       archivedAt: null,
       color: catColor(nextColorIndex++),
+      createdAt: now,
     }));
     patch.categories = [...state.categories, ...seeded];
   }
@@ -84,6 +89,7 @@ export function seedDefaultsIfNeeded(state) {
       name: seed.name,
       icon: seed.icon,
       color: catColor(nextColorIndex++),
+      createdAt: now,
     }));
   }
   return patch;

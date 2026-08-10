@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/useStore.js';
 import {
-  startAdvertisingAndDiscovery, disconnect, sendBytes, onConnected, onDisconnected, onReceived, onError,
+  startAdvertisingAndDiscovery, disconnect, sendBytes, onConnected, onDisconnected, onReceived, onError, openAppSettings,
 } from './nearbySync.js';
 import { useForegroundVisible } from './useForegroundVisible.js';
 import { buildPing, buildPong, buildStateMessage, parseNearbyMessage } from '../domain/pingProtocol.js';
@@ -33,6 +33,11 @@ export function useNearbySync() {
   const [remoteName, setRemoteName] = useState(null);
   const [error, setError] = useState(null);
   const [lastRoundTripMs, setLastRoundTripMs] = useState(null);
+  // True specifically when the "nearby" permission is the reason sync isn't working — denied the
+  // first time, or revoked later via Android's own Settings (ticket #22) — as opposed to any
+  // other connection error, so Pairing.jsx can show a distinct, actionable "Open Settings"
+  // explainer instead of just the generic error line other failures get.
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const visible = useForegroundVisible();
   const pendingPingRef = useRef(null); // { nonce, startedAt } | null
   // Always-current `state`, read (never written) from the async connection-lifecycle callbacks
@@ -72,6 +77,7 @@ export function useNearbySync() {
     let cancelled = false;
     setStatus('connecting');
     setError(null);
+    setPermissionDenied(false); // a fresh attempt — cleared until this attempt proves otherwise
     setLastRoundTripMs(null); // stale from a previous session — this one hasn't sent a ping yet
     pendingPingRef.current = null;
 
@@ -88,6 +94,7 @@ export function useNearbySync() {
       setStatus('connected');
       setRemoteName(pairedDeviceName);
       setError(null); // clear anything left over from before this (re)connection
+      setPermissionDenied(false); // a live connection proves the permission is fine
       // Sync (ticket #20): send this device's current data the moment a connection is
       // established. The peer does the same on its own 'connected' event, so both sides
       // converge without any host/client negotiation — see the module doc comment on
@@ -145,8 +152,16 @@ export function useNearbySync() {
 
     startAdvertisingAndDiscovery(state.deviceId, pairedDeviceId).catch((err) => {
       if (cancelled) return;
+      // The permission request/denial round-trip resolves through THIS call's own promise (see
+      // NearbySyncPlugin.kt's startAdvertisingAndDiscovery -> requestPermissionForAlias ->
+      // onPermissionResult, which rejects the original PluginCall), not through the 'error' event
+      // below — so this is the one place "requiresPermission" is actually seen, whether the user
+      // just declined the prompt or had previously granted, then revoked, the permission via
+      // Android's own Settings app.
+      const rawMessage = err?.message ?? String(err);
+      if (rawMessage === 'requiresPermission') setPermissionDenied(true);
       setStatus('error');
-      setError(friendlyErrorMessage(err?.message ?? String(err)));
+      setError(friendlyErrorMessage(rawMessage));
     });
 
     return () => {
@@ -178,5 +193,11 @@ export function useNearbySync() {
     sendCurrentState((err) => setError(friendlyErrorMessage(err?.message ?? String(err))));
   };
 
-  return { status, remoteName, error, lastRoundTripMs, sendPing, sync };
+  // Opens this app's own system settings screen (ticket #22) — the actionable next step for
+  // `permissionDenied`, rather than leaving the user stuck on an error with no path forward.
+  const openSettings = () => {
+    openAppSettings().catch((err) => setError(friendlyErrorMessage(err?.message ?? String(err))));
+  };
+
+  return { status, remoteName, error, lastRoundTripMs, sendPing, sync, permissionDenied, openAppSettings: openSettings };
 }

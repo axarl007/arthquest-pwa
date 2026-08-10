@@ -38,7 +38,7 @@ export default function App() {
   // Subscreen state for Quests -> quest detail; cleared whenever we navigate away from it.
   const [questDetail, setQuestDetail] = useState(null); // null | { questId, autoRedeem? }
   // Subscreen state for Home -> Settings (-> Categories/Pairing); cleared whenever we navigate away.
-  const [settings, setSettings] = useState(null); // null | 'main' | 'categories' | 'pairing'
+  const [settings, setSettings] = useState(null); // null | 'main' | 'categories' | 'pairing' | 'pairing-direct'
   // null | { type: 'log', initialType?, initialCategoryId? } | { type: 'txActions', tx } |
   // { type: 'budgetActions' } | { type: 'addCategory', context, initialGroup } | { type: 'newQuest', initialName? }
   const [sheet, setSheet] = useState(null);
@@ -121,6 +121,7 @@ export default function App() {
           onSelectCategory={(categoryId, monthKey) => setCategoryDetail({ categoryId, monthKey })}
           onSelectQuest={(questId) => setQuestDetail({ questId })}
           onRedeemQuest={(questId) => setQuestDetail({ questId, autoRedeem: true })}
+          onOpenPairing={() => setSettings('pairing-direct')}
         />
       </div>
       {!subscreenOpen && (
@@ -142,8 +143,12 @@ export default function App() {
         <div style={{ position: 'absolute', inset: 0, background: T.frameBg, zIndex: 15, display: 'flex', flexDirection: 'column' }}>
           {settings === 'categories' ? (
             <Categories onBack={() => setSettings('main')} onOpenAddCategory={openAddCategory} />
-          ) : settings === 'pairing' ? (
-            <Pairing onBack={() => setSettings('main')} nearby={nearby} />
+          ) : settings === 'pairing' || settings === 'pairing-direct' ? (
+            // 'pairing-direct' (Home's sync indicator/nudge, which skips Settings entirely) backs
+            // out to the tab screen it was opened from, not to a Settings main menu the user never
+            // visited — 'pairing' (opened via Settings' own "Pair a device" button) still backs out
+            // to Settings main, matching every other subscreen's "return to where you came from".
+            <Pairing onBack={() => setSettings(settings === 'pairing-direct' ? null : 'main')} nearby={nearby} />
           ) : (
             <Settings
               onBack={() => setSettings(null)}

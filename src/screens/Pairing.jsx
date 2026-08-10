@@ -6,7 +6,7 @@ import { useTheme } from '../theme/useTheme.js';
 import { SubscreenHeader } from '../components/ScreenHeader.jsx';
 import { SegmentedControl } from '../components/SegmentedControl.jsx';
 import { BottomSheet } from '../components/sheets/BottomSheet.jsx';
-import { buildPairingPayload, parsePairingPayload, shortDeviceCode } from '../domain/pairing.js';
+import { buildPairingPayload, parsePairingPayload, shortDeviceCode, nextPairedDevice } from '../domain/pairing.js';
 import { useForegroundVisible } from '../native/useForegroundVisible.js';
 
 const TABS = [
@@ -170,23 +170,7 @@ export function Pairing({ onBack, nearby }) {
   }, [tab, pendingPair, visible, state.deviceId]);
 
   const confirmPair = () => {
-    // lastSyncedAt (ticket #20) starts null for a genuinely new pairing — this device hasn't
-    // exchanged any data with the newly paired one yet, whether this is a first-ever pairing or a
-    // re-pair after unpairing. Re-confirming with the SAME device it's already paired to (the
-    // scanner only blocks scanning your own code, not re-scanning your current partner's) is not
-    // that — it doesn't change useNearbySync's connection effect (id/name are unchanged, so its
-    // dependency array doesn't fire a fresh connect), so a reset lastSyncedAt here would never get
-    // repopulated until some unrelated reconnect happened, leaving "Last synced" blank for no
-    // reason. Carrying the existing lastSyncedAt forward in that case keeps it accurate instead.
-    const samePeer = state.pairedDevice?.id === pendingPair.id;
-    setState({
-      pairedDevice: {
-        id: pendingPair.id,
-        name: pendingPair.name,
-        pairedAt: Date.now(),
-        lastSyncedAt: samePeer ? state.pairedDevice.lastSyncedAt : null,
-      },
-    });
+    setState({ pairedDevice: nextPairedDevice(state.pairedDevice, pendingPair) });
     setPendingPair(null);
     setTab('mine');
   };
@@ -241,10 +225,43 @@ export function Pairing({ onBack, nearby }) {
               />
               <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{NEARBY_STATUS_LABEL[nearby.status]}</div>
             </div>
-            {nearby.error && (
+            {nearby.error && !nearby.permissionDenied && (
               // Shown regardless of status: a ping can fail (see sendPing) while the connection
               // itself is otherwise still 'connected', not just while status === 'error'.
               <div style={{ fontSize: 12, color: C.danger, marginTop: 6, lineHeight: 1.4 }}>{nearby.error}</div>
+            )}
+            {nearby.permissionDenied && (
+              // A distinct, actionable explainer (ticket #22) rather than just the generic error
+              // line above — covers both "never granted" (declined the prompt) and "revoked later
+              // via Android's own Settings" identically, since this app can't tell those apart and
+              // the fix is the same either way: this device just isn't allowed to use Bluetooth/
+              // Wi-Fi/nearby-device APIs right now, and the only way back is Android's own
+              // per-app permission screen.
+              <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'oklch(0.28 0.06 25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: C.danger }}>lock</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: T.text }}>Permission needed</span>
+                </div>
+                <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 4, lineHeight: 1.4 }}>
+                  ArthQuest needs Bluetooth/nearby-device permission to sync with {state.pairedDevice.name}. Grant it in this app's settings, then come back here.
+                </div>
+                <button
+                  type="button"
+                  onClick={nearby.openAppSettings}
+                  style={{ marginTop: 8, padding: '8px 14px', borderRadius: 100, border: 'none', background: C.accent, color: T.onAccentText, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Open Settings
+                </button>
+                {nearby.error && (
+                  // The one shared error slot every action in this hook uses (sendPing, sync,
+                  // the connection lifecycle) — surfaced here too so a failed "Open Settings" tap
+                  // itself (e.g. no such settings screen on this device/ROM) is never silently
+                  // swallowed just because the generic error line above is suppressed while
+                  // permissionDenied is true. Redundant with the explainer text above on first
+                  // render (both describe the same "permission needed" state) but never wrong.
+                  <div style={{ fontSize: 11.5, color: C.danger, marginTop: 6, lineHeight: 1.4 }}>{nearby.error}</div>
+                )}
+              </div>
             )}
             {nearby.status === 'connected' && (
               <>

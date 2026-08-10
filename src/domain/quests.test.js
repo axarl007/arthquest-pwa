@@ -24,6 +24,11 @@ describe('createQuest', () => {
     expect(q.id).toBeTruthy();
     expect(q.color).toBe('oklch(0.62 0.13 300)'); // index 3 (1 category + 2 income categories)
   });
+
+  it('stamps createdAt (the sync pending-change indicator relies on this)', () => {
+    const q = createQuest('Goa Trip', 'flag', 10000, '2026-12-01', [], [], 12345);
+    expect(q.createdAt).toBe(12345);
+  });
 });
 
 describe('questProgress', () => {

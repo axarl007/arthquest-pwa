@@ -86,6 +86,12 @@ describe('seedDefaultsIfNeeded', () => {
     expect(patch.categories.every((c) => typeof c.color === 'string' && c.color.startsWith('oklch('))).toBe(true);
   });
 
+  it('stamps every seeded category and income category with createdAt (the sync pending-change indicator relies on this)', () => {
+    const patch = seedDefaultsIfNeeded({ categories: [], incomeCategories: [] }, 12345);
+    expect(patch.categories.every((c) => c.createdAt === 12345)).toBe(true);
+    expect(patch.incomeCategories.every((c) => c.createdAt === 12345)).toBe(true);
+  });
+
   it('continues the color index from existing categories, so re-seeding onto a non-empty state never repeats a color already in use', () => {
     const existing = {
       categories: Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, name: `Cat${i}`, icon: 'category', type: 'budget', group: 'needs', archived: false, color: catColor(i) })),
