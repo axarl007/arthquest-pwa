@@ -3,11 +3,12 @@ import { useStore } from '../store/useStore.js';
 import { useTheme } from '../theme/useTheme.js';
 import { ScreenHeader } from '../components/ScreenHeader.jsx';
 import { CategoryIcon } from '../components/CategoryIcon.jsx';
+import { MonthSelector } from '../components/MonthSelector.jsx';
 import { EmptyStateBody } from './EmptyStateBody.jsx';
 import { buildBudgetRows, matchesBudgetFilter, sortBudgetRows, isLockedMonth } from '../domain/budget.js';
 import { ensureMonthSeeded } from '../domain/allocations.js';
 import { GROUPS_ORDER, GROUP_LABELS } from '../domain/categories.js';
-import { formatINR, currentMonthKey, addMonthsToKey, monthLabel } from '../domain/format.js';
+import { formatINR, currentMonthKey, addMonthsToKey } from '../domain/format.js';
 
 const FILTER_DEFS = [
   { key: 'all', label: 'All' },
@@ -75,25 +76,7 @@ export function Budget({ onOpenActions, onSelectCategory }) {
     <>
       <ScreenHeader title="Budget" action={{ icon: 'add', label: 'Budget actions', onClick: onOpenActions }} />
       <div style={{ flex: 1, overflow: 'auto', padding: '6px 20px 110px', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 4 }}>
-          <button
-            type="button"
-            onClick={() => setMonthOffset((o) => o - 1)}
-            aria-label="Previous month"
-            style={{ width: 30, height: 30, borderRadius: 15, border: 'none', background: T.btnSecondaryBg, color: T.text, cursor: 'pointer' }}
-          >
-            ‹
-          </button>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>{monthLabel(monthKey)}</span>
-          <button
-            type="button"
-            onClick={() => setMonthOffset((o) => o + 1)}
-            aria-label="Next month"
-            style={{ width: 30, height: 30, borderRadius: 15, border: 'none', background: T.btnSecondaryBg, color: T.text, cursor: 'pointer' }}
-          >
-            ›
-          </button>
-        </div>
+        <MonthSelector monthKey={monthKey} onPrev={() => setMonthOffset((o) => o - 1)} onNext={() => setMonthOffset((o) => o + 1)} />
 
         {locked && (
           <div style={{ display: 'flex', gap: 10, background: T.lockedBanner, borderRadius: 14, padding: '12px 14px', marginTop: 8 }}>
@@ -115,7 +98,16 @@ export function Budget({ onOpenActions, onSelectCategory }) {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 10, overflowX: 'auto' }}>
+        {/* flexShrink: 0 is load-bearing, not decorative — this row's parent is a column flex
+            container whose content overflows its available height (that's the point, it's the
+            scroll region). overflowX: 'auto' forces overflowY to compute as 'auto' too (CSS
+            Overflow spec), and a flex item with non-visible overflow gets an automatic minimum
+            size of 0 instead of its content size — so without flexShrink: 0, this was the only
+            child flexbox was "allowed" to shrink to fill the deficit, and it collapsed to 0px,
+            silently hiding and disabling every filter chip. This was a real, pre-existing bug
+            (not new to this change) and very likely the actual cause behind "filters are
+            missing" — worse than just visually wrong, the chips were unclickable too. */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, overflowX: 'auto', flexShrink: 0 }}>
           {FILTER_DEFS.map((f) => {
             const active = filter === f.key;
             return (

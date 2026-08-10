@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore.js';
 import { useTheme } from '../theme/useTheme.js';
 import { ScreenHeader } from '../components/ScreenHeader.jsx';
+import { MonthSelector } from '../components/MonthSelector.jsx';
 import { questRows } from '../domain/quests.js';
 import { monthlyTotals, cumulativePosition } from '../domain/transactions.js';
 import { nearLimitCategories } from '../domain/budget.js';
-import { formatINR, currentMonthKey } from '../domain/format.js';
+import { formatINR, currentMonthKey, addMonthsToKey } from '../domain/format.js';
 import { pendingChangeCount, formatSyncedLabel, shouldNudgeStaleSync } from '../domain/sync.js';
 
 // Mirrors HomeViewModel's activeQuests: ACTIVE or COMPLETED quests (never REDEEMED — those have
@@ -23,6 +24,7 @@ export function Home({ onOpenSettings, onSelectQuest, onSelectCategory, onOpenPa
   const { T, C } = useTheme();
   const [showCumulativeExplanation, setShowCumulativeExplanation] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [monthOffset, setMonthOffset] = useState(0);
   const isPaired = Boolean(state.pairedDevice);
   useEffect(() => {
     // No sync indicator is rendered at all when unpaired (the common case pre-pairing) — skip the
@@ -33,7 +35,7 @@ export function Home({ onOpenSettings, onSelectQuest, onSelectCategory, onOpenPa
     return () => clearInterval(id);
   }, [isPaired]);
 
-  const monthKey = currentMonthKey();
+  const monthKey = addMonthsToKey(currentMonthKey(), monthOffset);
   const quests = questRows(state.categories, state.transactions, HOME_QUEST_STATUSES);
   const { income, expense, net } = monthlyTotals(state.transactions, monthKey);
   const netColor = net < 0 ? C.warn : T.text;
@@ -74,7 +76,9 @@ export function Home({ onOpenSettings, onSelectQuest, onSelectCategory, onOpenPa
           </div>
         )}
 
-        <div style={{ background: T.heroGradient, borderRadius: 20, padding: 18, marginTop: state.pairedDevice ? 14 : 8 }}>
+        <MonthSelector monthKey={monthKey} onPrev={() => setMonthOffset((o) => o - 1)} onNext={() => setMonthOffset((o) => o + 1)} />
+
+        <div style={{ background: T.heroGradient, borderRadius: 20, padding: 18, marginTop: 14 }}>
           <div
             style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
             onClick={() => setShowCumulativeExplanation((v) => !v)}

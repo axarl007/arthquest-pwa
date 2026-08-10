@@ -36,6 +36,16 @@ await page.screenshot({ path: '/tmp/shot-after-finish.png' });
 const bodyText = await page.evaluate(() => document.body.innerText);
 console.log('Body after finish:', JSON.stringify(bodyText.slice(0, 200)));
 
+// Home should now show its own persistent month selector (previously hardcoded to
+// currentMonthKey() with no navigation at all) and page between months on click.
+const monthLabelBefore = await page.locator('button[aria-label="Previous month"] + span').textContent();
+await page.locator('button[aria-label="Previous month"]').click();
+await page.waitForTimeout(150);
+const monthLabelAfter = await page.locator('button[aria-label="Previous month"] + span').textContent();
+console.log('Home month selector navigates to a different month:', monthLabelBefore !== monthLabelAfter, monthLabelBefore, '->', monthLabelAfter);
+await page.locator('button[aria-label="Next month"]').click();
+await page.waitForTimeout(150);
+
 const raw = await page.evaluate(() => localStorage.getItem('arthquest.state'));
 const parsed = JSON.parse(raw);
 console.log('onboarded:', parsed.data.onboarded);
