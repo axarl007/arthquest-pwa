@@ -47,6 +47,7 @@ export function AddCategorySheet({ context = 'budget', initialGroup = 'needs', o
       const newIncomeCategory = {
         id: makeId(), name: trimmedName, icon,
         color: catColor(state.categories.length + state.incomeCategories.length),
+        createdAt: Date.now(),
       };
       setState((s) => ({ incomeCategories: [...s.incomeCategories, newIncomeCategory] }));
       onClose();
@@ -59,6 +60,7 @@ export function AddCategorySheet({ context = 'budget', initialGroup = 'needs', o
     const newCategory = {
       id: makeId(), name: trimmedName, icon, type: 'budget', group, archived: false, archivedAt: null,
       color: catColor(state.categories.length + state.incomeCategories.length),
+      createdAt: Date.now(),
     };
     setState((s) => ({ categories: [...s.categories, newCategory] }));
     onClose();

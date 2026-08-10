@@ -6,10 +6,10 @@ const state = {
   theme: 'dark',
   iconStyle: 'cartoon',
   categories: [
-    { id: 'c1', name: 'Groceries', icon: 'shopping_cart', type: 'budget', group: 'needs', archived: false, archivedAt: null, color: 'oklch(0.62 0.13 150)', questTargetAmount: null, questTargetDate: null, questStatus: null, questRedeemedDate: null },
-    { id: 'q1', name: 'Goa Trip', icon: 'flag', type: 'quest', group: 'savings', archived: false, archivedAt: null, color: 'oklch(0.62 0.13 300)', questTargetAmount: 10000, questTargetDate: '2026-12-01', questStatus: 'active', questRedeemedDate: null },
+    { id: 'c1', name: 'Groceries', icon: 'shopping_cart', type: 'budget', group: 'needs', archived: false, archivedAt: null, color: 'oklch(0.62 0.13 150)', createdAt: null, questTargetAmount: null, questTargetDate: null, questStatus: null, questRedeemedDate: null },
+    { id: 'q1', name: 'Goa Trip', icon: 'flag', type: 'quest', group: 'savings', archived: false, archivedAt: null, color: 'oklch(0.62 0.13 300)', createdAt: null, questTargetAmount: 10000, questTargetDate: '2026-12-01', questStatus: 'active', questRedeemedDate: null },
   ],
-  incomeCategories: [{ id: 'ic1', name: 'Salary', icon: 'work', color: 'oklch(0.62 0.13 28)' }],
+  incomeCategories: [{ id: 'ic1', name: 'Salary', icon: 'work', color: 'oklch(0.62 0.13 28)', createdAt: null }],
   transactions: [
     { id: 't1', type: 'expense', amount: 500, date: '2026-08-05', createdAt: 1000, categoryId: 'c1', incomeCategoryId: null, description: 'Milk, eggs', isRedemption: false },
     { id: 't2', type: 'quest_contribution', amount: 2000, date: '2026-08-06', createdAt: 2000, categoryId: 'q1', incomeCategoryId: null, description: '', isRedemption: false },

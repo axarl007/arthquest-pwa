@@ -27,7 +27,7 @@ const TX_TYPE_FROM_EXPORT = { INCOME: 'income', EXPENSE: 'expense', QUEST_CONTRI
 function categoryToExport(c) {
   return {
     id: c.id, name: c.name, icon: c.icon, color: c.color, type: CATEGORY_TYPE_TO_EXPORT[c.type], group: GROUP_TO_EXPORT[c.group],
-    archived: c.archived, archivedAt: c.archivedAt ?? null, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
+    archived: c.archived, archivedAt: c.archivedAt ?? null, createdAt: c.createdAt ?? null, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
     questStatus: c.questStatus ? QUEST_STATUS_TO_EXPORT[c.questStatus] : null, questRedeemedDate: c.questRedeemedDate ?? null,
   };
 }
@@ -35,7 +35,7 @@ function categoryToExport(c) {
 function categoryFromExport(c) {
   return {
     id: c.id, name: c.name, icon: c.icon, color: c.color, type: CATEGORY_TYPE_FROM_EXPORT[c.type], group: GROUP_FROM_EXPORT[c.group],
-    archived: c.archived, archivedAt: c.archivedAt ?? null, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
+    archived: c.archived, archivedAt: c.archivedAt ?? null, createdAt: c.createdAt ?? null, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
     questStatus: c.questStatus ? QUEST_STATUS_FROM_EXPORT[c.questStatus] : null, questRedeemedDate: c.questRedeemedDate ?? null,
   };
 }
@@ -60,7 +60,7 @@ function transactionFromExport(t) {
 export function buildBackupJson(state) {
   const backup = {
     categories: state.categories.map(categoryToExport),
-    incomeCategories: state.incomeCategories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color })),
+    incomeCategories: state.incomeCategories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color, createdAt: c.createdAt ?? null })),
     // Tombstoned transactions (see domain/transactions.js's deleteTransaction) are excluded — a
     // backup is a single-device restore point, not a sync payload, so there's no merge to protect
     // against here; keeping them out matches Android's DataExportFormatter, which has no delete
@@ -88,7 +88,7 @@ export function parseBackupJson(json) {
   }
   const patch = {
     categories: parsed.categories.map(categoryFromExport),
-    incomeCategories: (parsed.incomeCategories ?? []).map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color })),
+    incomeCategories: (parsed.incomeCategories ?? []).map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color, createdAt: c.createdAt ?? null })),
     transactions: parsed.transactions.map(transactionFromExport),
     budgetAllocations: (parsed.budgetAllocations ?? []).map((a) => ({ ...a })),
   };

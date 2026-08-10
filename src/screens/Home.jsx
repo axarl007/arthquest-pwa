@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore.js';
 import { useTheme } from '../theme/useTheme.js';
 import { ScreenHeader } from '../components/ScreenHeader.jsx';
@@ -6,15 +6,32 @@ import { questRows } from '../domain/quests.js';
 import { monthlyTotals, cumulativePosition } from '../domain/transactions.js';
 import { nearLimitCategories } from '../domain/budget.js';
 import { formatINR, currentMonthKey } from '../domain/format.js';
+import { pendingChangeCount, formatSyncedLabel, shouldNudgeStaleSync } from '../domain/sync.js';
 
 // Mirrors HomeViewModel's activeQuests: ACTIVE or COMPLETED quests (never REDEEMED — those have
 // nothing left to track on Home).
 const HOME_QUEST_STATUSES = ['active', 'completed'];
 
-export function Home({ onOpenSettings, onSelectQuest, onSelectCategory }) {
+// How often the sync indicator's "Xm/Xh ago" text re-renders on its own — the value itself
+// (state.pairedDevice.lastSyncedAt) already updates instantly via a normal re-render whenever a
+// sync actually completes; this is only for the elapsed-time display to keep counting forward
+// while the user just sits on this screen without triggering any other state change.
+const SYNC_LABEL_TICK_MS = 30_000;
+
+export function Home({ onOpenSettings, onSelectQuest, onSelectCategory, onOpenPairing }) {
   const { state } = useStore();
   const { T, C } = useTheme();
   const [showCumulativeExplanation, setShowCumulativeExplanation] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const isPaired = Boolean(state.pairedDevice);
+  useEffect(() => {
+    // No sync indicator is rendered at all when unpaired (the common case pre-pairing) — skip the
+    // recurring timer/re-render/pendingChangeCount scan entirely rather than ticking a value
+    // nothing on screen reads.
+    if (!isPaired) return undefined;
+    const id = setInterval(() => setNow(Date.now()), SYNC_LABEL_TICK_MS);
+    return () => clearInterval(id);
+  }, [isPaired]);
 
   const monthKey = currentMonthKey();
   const quests = questRows(state.categories, state.transactions, HOME_QUEST_STATUSES);
@@ -22,12 +39,42 @@ export function Home({ onOpenSettings, onSelectQuest, onSelectCategory }) {
   const netColor = net < 0 ? C.warn : T.text;
   const cumulative = cumulativePosition(state.transactions);
   const nearLimit = nearLimitCategories(state.categories, state.budgetAllocations, state.transactions, monthKey);
+  const pending = pendingChangeCount(state);
+  const nudgeStaleSync = shouldNudgeStaleSync(state, now, pending);
 
   return (
     <>
       <ScreenHeader title="Home" action={{ icon: 'menu', label: 'Settings', onClick: onOpenSettings }} />
       <div style={{ flex: 1, overflow: 'auto', padding: '6px 20px 110px' }}>
-        <div style={{ background: T.heroGradient, borderRadius: 20, padding: 18, marginTop: 8 }}>
+        {state.pairedDevice && (
+          <div
+            onClick={onOpenPairing}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, cursor: 'pointer' }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14, color: T.textTertiary }}>sync</span>
+            <span style={{ fontSize: 12, color: T.textTertiary }}>
+              {formatSyncedLabel(state.pairedDevice.lastSyncedAt, now)}
+              {pending > 0 ? ` · ${pending} pending` : ''}
+            </span>
+          </div>
+        )}
+
+        {nudgeStaleSync && (
+          <div
+            onClick={onOpenPairing}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, cursor: 'pointer',
+              background: T.card, border: `1px solid ${C.warn}`, borderRadius: 14, padding: '12px 14px',
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.warn, flexShrink: 0 }}>sync_problem</span>
+            <span style={{ flex: 1, fontSize: 12.5, color: T.text, lineHeight: 1.4 }}>
+              Open the app on {state.pairedDevice.name} to sync your latest changes.
+            </span>
+          </div>
+        )}
+
+        <div style={{ background: T.heroGradient, borderRadius: 20, padding: 18, marginTop: state.pairedDevice ? 14 : 8 }}>
           <div
             style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
             onClick={() => setShowCumulativeExplanation((v) => !v)}

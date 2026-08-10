@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { mergeState, syncPayload, applyIncomingSync } from './sync.js';
+import {
+  mergeState, syncPayload, applyIncomingSync, pendingChangeCount, formatSyncedLabel, shouldNudgeStaleSync,
+  STALE_SYNC_THRESHOLD_MS,
+} from './sync.js';
 import { ensureMonthSeeded, saveAllocations } from './allocations.js';
 import { cumulativePosition } from './transactions.js';
 
@@ -10,8 +13,8 @@ const tx = (id, over = {}) => ({
 
 const cat = (id, over = {}) => ({
   id, name: 'Groceries', icon: 'shopping_cart', type: 'budget', group: 'needs', archived: false,
-  archivedAt: null, color: '#000', questTargetAmount: null, questTargetDate: null, questStatus: null,
-  questRedeemedDate: null, ...over,
+  archivedAt: null, color: '#000', createdAt: null, questTargetAmount: null, questTargetDate: null,
+  questStatus: null, questRedeemedDate: null, ...over,
 });
 
 const quest = (id, over = {}) => cat(id, {
@@ -19,9 +22,9 @@ const quest = (id, over = {}) => cat(id, {
   questStatus: 'active', ...over,
 });
 
-const income = (id, over = {}) => ({ id, name: 'Salary', icon: 'work', color: '#111', ...over });
+const income = (id, over = {}) => ({ id, name: 'Salary', icon: 'work', color: '#111', createdAt: null, ...over });
 
-const alloc = (id, over = {}) => ({ id, categoryId: 'cat1', month: '2026-08', percentage: 25, amount: 30000, updatedAt: 1000, ...over });
+const alloc = (id, over = {}) => ({ id, categoryId: 'cat1', month: '2026-08', percentage: 25, amount: 30000, updatedAt: 1000, createdAt: 1000, ...over });
 
 const state = (over = {}) => ({ transactions: [], categories: [], incomeCategories: [], budgetAllocations: [], ...over });
 
@@ -364,5 +367,150 @@ describe('applyIncomingSync', () => {
     const result = applyIncomingSync(local, remotePayload, 'device-2', 5000);
     expect(result.transactions).toEqual([tx('t1')]);
     expect(result.pairedDevice.lastSyncedAt).toBe(5000);
+  });
+});
+
+describe('pendingChangeCount', () => {
+  it('is 0 when unpaired — there is no peer to be behind on', () => {
+    const s = state({ transactions: [tx('t1', { createdAt: 5000 })], pairedDevice: null });
+    expect(pendingChangeCount(s)).toBe(0);
+  });
+
+  it('is 0 when never synced but nothing has a real timestamp to compare (all-null createdAt, e.g. legacy data)', () => {
+    const s = state({
+      categories: [cat('c1', { createdAt: null })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: null },
+    });
+    expect(pendingChangeCount(s)).toBe(0);
+  });
+
+  it('counts a transaction created after lastSyncedAt', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 1000 }), tx('t2', { createdAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(1); // only t2
+  });
+
+  it('counts a transaction deleted after lastSyncedAt, even if it was created before', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 1000, deletedAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(1);
+  });
+
+  it('counts a category created or archived after lastSyncedAt', () => {
+    const s = state({
+      categories: [
+        cat('c1', { createdAt: 1000 }), // before — not pending
+        cat('c2', { createdAt: 9000 }), // created after — pending
+        cat('c3', { createdAt: 1000, archived: true, archivedAt: 9000 }), // archived after — pending
+      ],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(2);
+  });
+
+  it('counts an income category created after lastSyncedAt', () => {
+    const s = state({
+      incomeCategories: [income('i1', { createdAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(1);
+  });
+
+  it('counts a budget allocation row created after lastSyncedAt', () => {
+    const s = state({
+      budgetAllocations: [alloc('a1', { createdAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(1);
+  });
+
+  it('counts a budget allocation row from a mechanical month-copy (ensureMonthSeeded) even though its updatedAt is deliberately backdated', () => {
+    // ensureMonthSeeded forwards the source row's updatedAt (for merge priority — see
+    // allocations.js) but always mints a fresh id + createdAt, since the row itself is new.
+    const s = state({
+      budgetAllocations: [alloc('a1', { updatedAt: 1000, createdAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(1);
+  });
+
+  it('treats a null lastSyncedAt (never synced) as everything with a real timestamp being pending', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 1000 })],
+      categories: [cat('c1', { createdAt: 1000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: null },
+    });
+    expect(pendingChangeCount(s)).toBe(2);
+  });
+
+  it('clears to 0 immediately once lastSyncedAt catches up to every record (a completed sync)', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 9000 },
+    });
+    expect(pendingChangeCount(s)).toBe(0); // not strictly after lastSyncedAt, so not pending
+  });
+});
+
+describe('formatSyncedLabel', () => {
+  it('shows "Not yet synced" for a null lastSyncedAt', () => {
+    expect(formatSyncedLabel(null)).toBe('Not yet synced');
+  });
+
+  it('shows "Synced just now" for under a minute', () => {
+    expect(formatSyncedLabel(9_000, 10_000)).toBe('Synced just now');
+  });
+
+  it('shows minutes for under an hour', () => {
+    expect(formatSyncedLabel(0, 5 * 60_000)).toBe('Synced 5m ago');
+  });
+
+  it('shows hours for under a day', () => {
+    expect(formatSyncedLabel(0, 3 * 60 * 60_000)).toBe('Synced 3h ago');
+  });
+
+  it('shows days for a day or more', () => {
+    expect(formatSyncedLabel(0, 2 * 24 * 60 * 60_000)).toBe('Synced 2d ago');
+  });
+});
+
+describe('shouldNudgeStaleSync', () => {
+  it('is false when unpaired', () => {
+    const s = state({ transactions: [tx('t1', { createdAt: 9000 })], pairedDevice: null });
+    expect(shouldNudgeStaleSync(s, 9000 + STALE_SYNC_THRESHOLD_MS + 1)).toBe(false);
+  });
+
+  it('is false when there are no pending changes, no matter how stale', () => {
+    const s = state({ pairedDevice: { id: 'd2', name: 'Other', pairedAt: 0, lastSyncedAt: 0 } });
+    expect(shouldNudgeStaleSync(s, STALE_SYNC_THRESHOLD_MS * 10)).toBe(false);
+  });
+
+  it('is false when pending changes exist but the threshold has not elapsed since lastSyncedAt', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 5000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 0, lastSyncedAt: 1000 },
+    });
+    expect(shouldNudgeStaleSync(s, 1000 + STALE_SYNC_THRESHOLD_MS - 1)).toBe(false);
+  });
+
+  it('is true once pending changes exist and the threshold has elapsed since lastSyncedAt', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 5000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 0, lastSyncedAt: 1000 },
+    });
+    expect(shouldNudgeStaleSync(s, 1000 + STALE_SYNC_THRESHOLD_MS + 1)).toBe(true);
+  });
+
+  it('uses pairedAt as the reference point when never synced', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 5000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 2000, lastSyncedAt: null },
+    });
+    expect(shouldNudgeStaleSync(s, 2000 + STALE_SYNC_THRESHOLD_MS - 1)).toBe(false);
+    expect(shouldNudgeStaleSync(s, 2000 + STALE_SYNC_THRESHOLD_MS + 1)).toBe(true);
   });
 });
