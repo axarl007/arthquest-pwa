@@ -46,7 +46,13 @@ export function BottomNav({ active, onNavigate }) {
                 cursor: 'pointer',
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 22, color }}>
+              {/* aria-hidden: a Material Symbols glyph is a real text character (a ligature, e.g.
+                  the literal string "home"), not an image — without this it gets read into the
+                  button's accessible name alongside the visible label below, turning "Home" into
+                  "homeHome" for screen readers (and breaking any `getByRole('button', {name})`
+                  query, which is exactly how this regression was caught). The visible label
+                  already fully conveys what this button does, so the icon is purely decorative. */}
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22, color }}>
                 {n.icon}
               </span>
               <span style={{ fontSize: 10.5, fontWeight: 700, color }}>{n.label}</span>
