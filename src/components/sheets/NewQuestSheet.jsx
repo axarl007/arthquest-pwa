@@ -13,7 +13,7 @@ import { BottomSheet } from './BottomSheet.jsx';
  */
 export function NewQuestSheet({ initialName = '', onClose }) {
   const { state, setState } = useStore();
-  const { T, C } = useTheme();
+  const { T, C, theme } = useTheme();
 
   const [name, setName] = useState(initialName);
   const [targetAmount, setTargetAmount] = useState('');
@@ -56,12 +56,19 @@ export function NewQuestSheet({ initialName = '', onClose }) {
         />
       </div>
 
+      {/* Unlike name/amount, this field's placeholder alone ("mm/dd/yyyy") doesn't read as
+          optional — an empty required-looking date box looked broken/unfinished. A visible label
+          makes the optionality explicit instead of relying on the reader to infer it. */}
+      <div style={{ fontSize: 12, fontWeight: 700, color: T.textTertiary, textTransform: 'uppercase', letterSpacing: '0.02em', marginTop: 10, marginBottom: 6 }}>
+        Target date (optional)
+      </div>
       <input
         type="date"
         min={todayIso()}
         value={targetDate}
         onChange={(e) => setTargetDate(e.target.value)}
-        style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 13, fontSize: 13, color: T.text, marginTop: 10, outline: 'none' }}
+        // colorScheme follows the app's theme — see LogTransactionSheet's date input for why.
+        style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 13, fontSize: 13, color: T.text, outline: 'none', colorScheme: theme === 'vibrant' ? 'light' : 'dark' }}
       />
 
       <button
