@@ -44,14 +44,33 @@ console.log('Pairing "My code" tab shows the short code:', /[0-9A-F]{4}-[0-9A-F]
 const qrRendered = await page.locator('img[alt="Pairing QR code"]').isVisible();
 console.log('QR image rendered:', qrRendered);
 
-// Rename this device, confirm it persists and regenerates the QR without error.
+// Rename this device and verify the save is genuinely debounced (Pairing.jsx's handleNameChange):
+// not yet in the store immediately after typing, but landed a moment later without ever blurring
+// the input. This proves the debounce mechanism itself works. It does NOT prove the timer
+// survives a true no-blur unmount (e.g. Android hardware back) — clicking any other element,
+// including the Back button below, fires a native blur on the focused input first, which flushes
+// synchronously via handleNameBlur. Desktop-Chromium Playwright has no way to trigger navigation
+// without that blur firing, so the "outlives an unmount that skips blur" guarantee is verified by
+// code inspection instead (the timer is a plain ref, not inside a useEffect, so it's never
+// cancelled by cleanup-on-unmount) — see that handler's own comment.
 const nameInput = page.locator('input[placeholder="e.g. Axar\'s Phone"]');
 await nameInput.fill('');
 await nameInput.type("Axar's Phone");
-await nameInput.blur();
+const savedImmediately = await page.evaluate(() => JSON.parse(localStorage.getItem('arthquest.state')).data.deviceName);
+console.log('Device name is NOT saved synchronously on every keystroke (debounced, not immediate):', savedImmediately !== "Axar's Phone");
+await page.waitForTimeout(700);
+const savedAfterDebounce = await page.evaluate(() => JSON.parse(localStorage.getItem('arthquest.state')).data.deviceName);
+console.log('Device name lands in the store once the debounce fires, without ever blurring:', savedAfterDebounce === "Axar's Phone");
+
+// Full app restart — the strongest persistence check available.
+await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(300);
-const savedName = await page.evaluate(() => JSON.parse(localStorage.getItem('arthquest.state')).data.deviceName);
-console.log('Device name saved:', savedName === "Axar's Phone");
+await page.locator('button[aria-label="Settings"]').click();
+await page.waitForTimeout(200);
+await page.getByText('Pair a device', { exact: false }).click();
+await page.waitForTimeout(300);
+const rehydratedName = await page.locator('input[placeholder="e.g. Axar\'s Phone"]').inputValue();
+console.log('Device name survives a full app restart:', rehydratedName === "Axar's Phone");
 
 // Switch to Scan — with the fake camera flags above, getUserMedia should resolve and the video
 // element should start streaming with no permission-denied error surfaced.

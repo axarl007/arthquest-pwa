@@ -17,6 +17,7 @@ const state = {
   budgetAllocations: [{ id: 'a1', categoryId: 'c1', month: '2026-08', percentage: 8, amount: 9600 }],
   settingsToggles: { daily: true, monthEnd: true, backup: true, review: true },
   lastBackupReminderDate: '2026-07-25',
+  lastIncome: 120000,
 };
 
 describe('buildBackupJson / parseBackupJson round-trip', () => {
@@ -37,13 +38,21 @@ describe('buildBackupJson / parseBackupJson round-trip', () => {
     expect(patch.budgetAllocations).toEqual(state.budgetAllocations);
   });
 
-  it('round-trips settings (theme, iconStyle, onboarded, toggles, lastBackupReminderDate)', () => {
+  it('round-trips settings (theme, iconStyle, onboarded, toggles, lastBackupReminderDate, lastIncome)', () => {
     const patch = parseBackupJson(buildBackupJson(state));
     expect(patch.theme).toBe('dark');
     expect(patch.iconStyle).toBe('cartoon');
     expect(patch.onboarded).toBe(true);
     expect(patch.settingsToggles).toEqual(state.settingsToggles);
     expect(patch.lastBackupReminderDate).toBe('2026-07-25');
+    expect(patch.lastIncome).toBe(120000);
+  });
+
+  it('tolerates a backup that predates the lastIncome field (no settings.lastIncome key at all)', () => {
+    const withoutLastIncome = JSON.parse(buildBackupJson(state));
+    delete withoutLastIncome.settings.lastIncome;
+    const patch = parseBackupJson(JSON.stringify(withoutLastIncome));
+    expect(patch.lastIncome).toBeUndefined();
   });
 
   it('tolerates an import with no settings key (e.g. a data-only backup)', () => {

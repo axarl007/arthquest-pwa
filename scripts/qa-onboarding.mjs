@@ -48,4 +48,15 @@ await page.waitForTimeout(300);
 const afterReload = await page.evaluate(() => document.body.innerText);
 console.log('Body after reload (should stay on Home, not Onboarding):', JSON.stringify(afterReload.slice(0, 60)));
 
+console.log('lastIncome persisted:', JSON.parse(await page.evaluate(() => localStorage.getItem('arthquest.state'))).data.lastIncome === 120000);
+
+// "Redo income split" (Settings) re-enters Onboarding — the reported bug was this always
+// starting blank/₹0 instead of prefilling the income actually saved above.
+await page.locator('button[aria-label="Settings"]').click();
+await page.waitForTimeout(200);
+await page.getByText('Redo income split', { exact: true }).click();
+await page.waitForTimeout(300);
+const reenterValue = await page.locator('input[inputmode="numeric"]').inputValue();
+console.log('Redo income split prefills the last saved income:', reenterValue === '1,20,000', JSON.stringify(reenterValue));
+
 await browser.close();

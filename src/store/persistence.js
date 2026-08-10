@@ -24,6 +24,13 @@ export function freshState() {
     // Android app has no persisted "current income" figure at all, only these computed amounts;
     // spent/contributed totals are likewise never stored, always derived from `transactions`.
     budgetAllocations: [],
+    // The raw income figure typed into Onboarding, kept only so re-entering the income-split flow
+    // (Settings > "Redo income split") can prefill it instead of forcing a blank ₹0 re-type every
+    // time — has no Android/budgetAllocations equivalent, since the derived per-category `amount`s
+    // above already capture everything the app itself needs. Deliberately NOT preserved across a
+    // full data reset (see Settings.jsx's confirmReset) — a reset is "start over," so Onboarding
+    // starting blank there is correct; only in-place re-entry should see the prior value.
+    lastIncome: null,
     transactions: [],
     // Every reminder toggle defaults on, matching AppPreferences' own `?: true` fallback for all
     // four (backupReminderEnabled included — a prior default of false here was a ticket #1
