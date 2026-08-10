@@ -66,4 +66,19 @@ const bodyAfterDelete = await page.evaluate(() => document.body.innerText);
 console.log('Ledger after delete still contains "Groceries":', bodyAfterDelete.includes('Groceries'));
 await page.screenshot({ path: '/tmp/shot-ledger-after-delete.png' });
 
+// Month navigation: the remaining income transaction was logged in the real current month, so
+// paging to the previous month should scope it out of view — confirms MonthSelector.jsx actually
+// drives Transactions' monthKey instead of the screen staying pinned to currentMonthKey().
+await page.locator('button[aria-label="Previous month"]').click();
+await page.waitForTimeout(200);
+await page.screenshot({ path: '/tmp/shot-ledger-prev-month.png' });
+const prevMonthBody = await page.evaluate(() => document.body.innerText);
+console.log('Previous month hides the current-month income transaction:', !prevMonthBody.includes('Salary'));
+console.log('Previous month shows the empty state:', prevMonthBody.includes('No transactions this month.'));
+
+await page.locator('button[aria-label="Next month"]').click();
+await page.waitForTimeout(200);
+const backBody = await page.evaluate(() => document.body.innerText);
+console.log('Paging back to current month shows the income transaction again:', backBody.includes('Salary'));
+
 await browser.close();

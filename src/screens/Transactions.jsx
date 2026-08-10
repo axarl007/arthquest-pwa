@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { useStore } from '../store/useStore.js';
 import { useTheme } from '../theme/useTheme.js';
 import { ScreenHeader } from '../components/ScreenHeader.jsx';
+import { MonthSelector } from '../components/MonthSelector.jsx';
 import { EmptyStateBody } from './EmptyStateBody.jsx';
 import {
   monthlyTotals, transactionsInMonth, filterByType, sortTransactions, groupByDateLabel, resolveTransactionSubject,
 } from '../domain/transactions.js';
-import { formatINR, currentMonthKey, todayIso } from '../domain/format.js';
+import { formatINR, currentMonthKey, addMonthsToKey, todayIso } from '../domain/format.js';
 import { CategoryIcon } from '../components/CategoryIcon.jsx';
 
 const FILTER_DEFS = [
@@ -21,8 +22,9 @@ export function Transactions({ onSelectTx }) {
   const { T, C, iconStyle } = useTheme();
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState('desc');
+  const [monthOffset, setMonthOffset] = useState(0);
 
-  const monthKey = currentMonthKey();
+  const monthKey = addMonthsToKey(currentMonthKey(), monthOffset);
   const today = todayIso();
   const { income, expense, net } = monthlyTotals(state.transactions, monthKey);
   const netColor = net < 0 ? C.warn : T.text;
@@ -36,7 +38,9 @@ export function Transactions({ onSelectTx }) {
     <>
       <ScreenHeader title="Transactions" />
       <div style={{ flex: 1, overflow: 'auto', padding: '6px 20px 110px', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', gap: 10, marginTop: 8, background: T.card, border: T.cardBorder, borderRadius: 14, padding: '12px 8px' }}>
+        <MonthSelector monthKey={monthKey} onPrev={() => setMonthOffset((o) => o - 1)} onNext={() => setMonthOffset((o) => o + 1)} />
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 14, background: T.card, border: T.cardBorder, borderRadius: 14, padding: '12px 8px' }}>
           <div style={{ flex: 1, textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: T.textTertiary }}>Income</div>
             <div style={{ fontSize: 14, fontWeight: 700, color: C.income, marginTop: 2 }}>{formatINR(income)}</div>
@@ -53,7 +57,12 @@ export function Transactions({ onSelectTx }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 14, overflowX: 'auto' }}>
+        {/* flexShrink: 0 is load-bearing — see Budget.jsx's identical filter row for the full
+            explanation: without it, this row (the only flex child with non-visible overflow, via
+            overflowX: 'auto' forcing overflowY to compute as 'auto' too) was the only one
+            flexbox could shrink to absorb the column's content overflow, and it collapsed to 0px
+            height, silently hiding and disabling every filter chip. */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 14, overflowX: 'auto', flexShrink: 0 }}>
           {FILTER_DEFS.map((f) => {
             const active = filter === f.key;
             return (

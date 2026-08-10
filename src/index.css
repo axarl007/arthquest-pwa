@@ -64,6 +64,11 @@ a:hover {
 .material-symbols-outlined {
   font-variation-settings: 'opsz' 20, 'wght' 400, 'FILL' 0, 'GRAD' 0;
   font-feature-settings: 'liga';
+  /* Without this, the glyph's default line-height leaves asymmetric space above/below it, so
+     even a span that's correctly flex-centered inside its button still looks visually
+     off-center — the actual cause behind every "icon isn't centered" report across the app
+     (settings/add/close/search/lock/sync icons alike), not a per-button bug. */
+  line-height: 1;
 }
 
 @keyframes sheetUp {

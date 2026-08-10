@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../../store/useStore.js';
-import { useTheme } from '../../theme/useTheme.js';
+import { useTheme, nativeColorScheme } from '../../theme/useTheme.js';
 import { GROUP_LABELS, makeId } from '../../domain/categories.js';
 import { withRecomputedQuestStatus } from '../../domain/quests.js';
 import { QUEST_COLOR } from '../../theme/tokens.js';
@@ -32,7 +32,7 @@ function optionsForType(type, state) {
 
 export function LogTransactionSheet({ initialType = 'expense', initialCategoryId = null, onClose }) {
   const { state, setState } = useStore();
-  const { T, C, iconStyle } = useTheme();
+  const { T, C, theme, iconStyle } = useTheme();
 
   const [type, setType] = useState(initialType);
   const [amount, setAmount] = useState('');
@@ -192,7 +192,11 @@ export function LogTransactionSheet({ initialType = 'expense', initialCategoryId
         max={todayIso()}
         value={date}
         onChange={(e) => setDate(e.target.value)}
-        style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 12, fontSize: 13, color: T.text, marginTop: 14, outline: 'none' }}
+        // colorScheme follows the app's own theme (not hardcoded 'dark') so the native picker
+        // popup and calendar-icon affordance render in the matching UA palette under Vibrant
+        // (light) too — the default browser popup otherwise looks jarringly out of place against
+        // every other control here.
+        style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 12, fontSize: 13, color: T.text, marginTop: 14, outline: 'none', colorScheme: nativeColorScheme(theme) }}
       />
       <input
         type="text"

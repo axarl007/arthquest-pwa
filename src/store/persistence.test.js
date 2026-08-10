@@ -14,6 +14,7 @@ describe('freshState', () => {
     expect(s.categories).toEqual([]);
     expect(s.transactions).toEqual([]);
     expect(s.budgetAllocations).toEqual([]);
+    expect(s.lastIncome).toBeNull();
   });
 });
 

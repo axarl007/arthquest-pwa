@@ -70,6 +70,7 @@ export function buildBackupJson(state) {
     settings: {
       theme: state.theme, iconStyle: state.iconStyle, onboarded: state.onboarded,
       settingsToggles: { ...state.settingsToggles }, lastBackupReminderDate: state.lastBackupReminderDate ?? null,
+      lastIncome: state.lastIncome ?? null,
     },
   };
   return JSON.stringify(backup, null, 2);
@@ -107,6 +108,11 @@ export function parseBackupJson(json) {
     if (typeof parsed.settings.onboarded === 'boolean') patch.onboarded = parsed.settings.onboarded;
     if (parsed.settings.settingsToggles) patch.settingsToggles = { ...parsed.settings.settingsToggles };
     if (parsed.settings.lastBackupReminderDate) patch.lastBackupReminderDate = parsed.settings.lastBackupReminderDate;
+    // Restoring a backup should repopulate the "Redo income split" prefill (see
+    // store/persistence.js's lastIncome) — otherwise an imported backup with real
+    // budgetAllocations still shows a blank ₹0 income on re-entry, the exact bug that field
+    // exists to prevent for the in-place re-entry path.
+    if (typeof parsed.settings.lastIncome === 'number') patch.lastIncome = parsed.settings.lastIncome;
   }
   return patch;
 }

@@ -64,6 +64,9 @@ export function Pairing({ onBack, nearby }) {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef = useRef(null);
+  // Debounce timer for handleNameChange below — a plain ref, not useEffect-managed, so it's
+  // deliberately NOT cancelled when this screen unmounts (see that handler's own comment).
+  const nameSaveTimerRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,10 +76,52 @@ export function Pairing({ onBack, nearby }) {
     return () => { cancelled = true; };
   }, [state.deviceId, state.deviceName]);
 
-  const saveName = () => {
+  // Saves the device name after a short pause in typing, not just on blur — blur-only saving was
+  // the original bug (name lost if the screen unmounts via a navigation path that never fires
+  // blur, e.g. a hardware/gesture back action). Debouncing rather than committing on every
+  // keystroke avoids two real costs a raw per-keystroke setState would add: re-serializing and
+  // writing the ENTIRE app state to localStorage on every character (StoreContext's saveState
+  // effect runs on every state change, not just this field), and re-encoding the QR code once per
+  // character (the effect above depends on state.deviceName).
+  //
+  // The debounce timer is a plain ref (`setTimeout`), not something a `useEffect` cleanup cancels
+  // on unmount — on purpose. It fires against the store's own dispatch, not any component-local
+  // state, so letting it complete after this screen closes is completely safe; cancelling it on
+  // unmount would silently drop whatever was typed in the last debounce window before navigating
+  // away, reintroducing (in a smaller window) the exact bug this change exists to fix.
+  //
+  // Known accepted edge case: if the user leaves via a true no-blur exit within this 400ms window
+  // AND reaches Settings' two-step "reset all data" confirmation (which deliberately preserves
+  // the pre-edit deviceName) before the timer fires, the stale edit still lands afterward,
+  // overwriting the just-reset name. Not fixed — reaching a two-tap destructive confirmation
+  // within 400ms of the last keystroke isn't realistically reachable by a human, and guarding
+  // against it would mean threading reset-in-progress state into this timer for no practical
+  // benefit.
+  const handleNameChange = (e) => {
+    const value = e.target.value;
+    setNameDraft(value);
+    if (nameSaveTimerRef.current) clearTimeout(nameSaveTimerRef.current);
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === state.deviceName) return;
+    nameSaveTimerRef.current = setTimeout(() => setState({ deviceName: trimmed }), 400);
+  };
+
+  // Blurring flushes immediately (don't make the user wait out the debounce) and always snaps the
+  // visible draft to the trimmed value that was actually committed — including when the user
+  // typed leading/trailing whitespace, which state.deviceName never carries but the raw draft
+  // otherwise would, left looking wrong until the next mount.
+  const handleNameBlur = () => {
+    if (nameSaveTimerRef.current) {
+      clearTimeout(nameSaveTimerRef.current);
+      nameSaveTimerRef.current = null;
+    }
     const trimmed = nameDraft.trim();
-    if (trimmed && trimmed !== state.deviceName) setState({ deviceName: trimmed });
-    setNameDraft(trimmed || state.deviceName);
+    if (!trimmed) {
+      setNameDraft(state.deviceName);
+      return;
+    }
+    if (trimmed !== state.deviceName) setState({ deviceName: trimmed });
+    setNameDraft(trimmed);
   };
 
   // Camera scanning loop — only runs while the Scan tab is open, no pairing is awaiting
@@ -308,8 +353,8 @@ export function Pairing({ onBack, nearby }) {
             <input
               type="text"
               value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onBlur={saveName}
+              onChange={handleNameChange}
+              onBlur={handleNameBlur}
               placeholder="e.g. Axar's Phone"
               style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 12, fontSize: 14, color: T.text, outline: 'none', marginBottom: 22 }}
             />
