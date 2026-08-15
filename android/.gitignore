@@ -53,9 +53,14 @@ captures/
 .idea/navEditor.xml
 
 # Keystore files
-# Uncomment the following lines if you do not want to check your keystore files in.
-#*.jks
-#*.keystore
+# This repo is public — the release signing keystore is kept out of git entirely (CI gets it
+# from GitHub Actions secrets; see CLAUDE.md's "Android release APK signing" note). An optional
+# local keystore for locally-signed dev builds is supported too (keystore/release.keystore +
+# keystore/release.keystore.properties), but must never be committed either — hence no exceptions
+# below, unlike the upstream Android .gitignore template this file started from.
+*.jks
+*.keystore
+keystore/*.properties
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild

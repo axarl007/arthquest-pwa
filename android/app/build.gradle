@@ -3,6 +3,26 @@ apply plugin: 'com.android.application'
 // dependency, so no explicit stdlib version needs managing here.
 apply plugin: 'kotlin-android'
 
+// Stable release-signing keystore. This repo is public, so the keystore + its passwords are NOT
+// committed — CI decodes them from GitHub Actions secrets at build time (see android-release.yml
+// and the ANDROID_KEYSTORE_* env vars below). For an optional locally-signed dev build, drop a
+// keystore at keystore/release.keystore plus a keystore/release.keystore.properties file
+// (storePassword=/keyAlias=/keyPassword=) — both paths are gitignored, never commit either one.
+// Whichever key ends up used, it must stay the SAME key forever: a different signing key on a
+// future build makes Android refuse to install it as an update over the existing app, forcing an
+// uninstall/reinstall (the exact bug this whole signingConfig exists to fix).
+def keystorePropertiesFile = rootProject.file('keystore/release.keystore.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+def releaseStoreFile = System.getenv('ANDROID_KEYSTORE_PATH') ? file(System.getenv('ANDROID_KEYSTORE_PATH')) : rootProject.file('keystore/release.keystore')
+def releaseStorePassword = System.getenv('ANDROID_KEYSTORE_STORE_PASSWORD') ?: keystoreProperties['storePassword']
+def releaseKeyAlias = System.getenv('ANDROID_KEYSTORE_KEY_ALIAS') ?: keystoreProperties['keyAlias']
+def releaseKeyPassword = System.getenv('ANDROID_KEYSTORE_KEY_PASSWORD') ?: keystoreProperties['keyPassword']
+def hasReleaseSigning = releaseStoreFile.exists() && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+def androidVersionCode = System.getenv('ANDROID_VERSION_CODE') ?: '1'
+
 android {
     namespace = "com.arthquest.pwa"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -10,8 +30,20 @@ android {
         applicationId "com.arthquest.pwa"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Android only installs a new APK as an update (rather than refusing it) when its
+        // versionCode is strictly higher than the currently-installed one — a value hardcoded to
+        // 1 forever, on top of the signing-key mismatch, was the other half of the "have to
+        // uninstall and reinstall" bug. CI sets ANDROID_VERSION_CODE to the (monotonically
+        // increasing, never-reused) GitHub Actions run number for every release build; local/dev
+        // builds fall back to 1 since they're never what a real device is updating from.
+        // NOTE: `versionCode <expr>` must not start with a literal '(' right after the method
+        // name — Groovy's command-chain parsing then reads `versionCode(...)` as a full call on
+        // its own, evaluates it (with the raw String, before .toInteger() ever runs), and treats
+        // a trailing `.toInteger()` as a separate postfix call on that (null) return value,
+        // throwing an NPE at configuration time. Routing through the androidVersionCode variable
+        // above avoids a leading '(' here and sidesteps the ambiguity entirely.
+        versionCode androidVersionCode.toInteger()
+        versionName "1.0." + androidVersionCode
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -19,10 +51,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile releaseStoreFile
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     // Matches the JDK actually used to run this build (setup-java pins 21 in CI; this sandbox's
