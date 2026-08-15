@@ -5,6 +5,7 @@ import { SubscreenHeader } from '../components/ScreenHeader.jsx';
 import { SegmentedControl } from '../components/SegmentedControl.jsx';
 import { freshState } from '../store/persistence.js';
 import { buildBackupJson, buildTransactionsCsv, parseBackupJson } from '../domain/exportData.js';
+import { exportFile } from '../native/exportFile.js';
 
 const THEME_OPTIONS = [{ key: 'dark', label: 'Dark' }, { key: 'vibrant', label: 'Vibrant' }];
 const ICON_STYLE_OPTIONS = [{ key: 'flat', label: 'Flat' }, { key: 'cartoon', label: 'Cartoon' }];
@@ -21,16 +22,6 @@ function timestampForFilename(date = new Date()) {
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }
 
-function downloadFile(filename, mimeType, content) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 /** Requests Notification permission only at the moment a toggle is switched on — never
  * proactively (decision #3) — and only if the browser hasn't already been asked. */
 function ensureNotificationPermission() {
@@ -43,6 +34,13 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
   const { T, C } = useTheme();
   const [resetStep, setResetStep] = useState(0); // 0 closed, 1 first confirm, 2 final confirm
   const [importError, setImportError] = useState(null);
+  const [exportError, setExportError] = useState(null);
+  // On native, exportFile() cleans up its own previously-exported cache files at the start of the
+  // *next* call rather than right after sharing (deleting immediately risks the receiving app
+  // still being mid-read on a still-open share sheet — see exportFile.js). That only holds if
+  // exports can't overlap, so this disables both buttons for the duration of an in-flight export
+  // instead of just relying on nobody double-tapping.
+  const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef(null);
 
   const setReminderToggle = (key, enabled) => {
@@ -50,8 +48,15 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
     setState((s) => ({ settingsToggles: { ...s.settingsToggles, [key]: enabled } }));
   };
 
-  const exportJson = () => downloadFile(`arthquest_backup_${timestampForFilename()}.json`, 'application/json', buildBackupJson(state));
-  const exportCsv = () => downloadFile(`arthquest_transactions_${timestampForFilename()}.csv`, 'text/csv', buildTransactionsCsv(state));
+  const runExport = (filename, mimeType, content) => {
+    setExportError(null);
+    setExporting(true);
+    exportFile(filename, mimeType, content)
+      .catch(() => setExportError("Couldn't export that file — please try again."))
+      .finally(() => setExporting(false));
+  };
+  const exportJson = () => runExport(`arthquest_backup_${timestampForFilename()}.json`, 'application/json', buildBackupJson(state));
+  const exportCsv = () => runExport(`arthquest_transactions_${timestampForFilename()}.csv`, 'text/csv', buildTransactionsCsv(state));
 
   const importJson = (file) => {
     setImportError(null);
@@ -128,11 +133,11 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
 
         <div style={sectionLabelStyle}>Data</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <button type="button" onClick={exportJson} style={dataButtonStyle}>
+          <button type="button" onClick={exportJson} disabled={exporting} style={{ ...dataButtonStyle, opacity: exporting ? 0.6 : 1, cursor: exporting ? 'default' : 'pointer' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>download</span>
             Export as JSON (full backup)
           </button>
-          <button type="button" onClick={exportCsv} style={dataButtonStyle}>
+          <button type="button" onClick={exportCsv} disabled={exporting} style={{ ...dataButtonStyle, opacity: exporting ? 0.6 : 1, cursor: exporting ? 'default' : 'pointer' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>download</span>
             Export as CSV
           </button>
@@ -151,6 +156,7 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
               e.target.value = '';
             }}
           />
+          {exportError && <div style={{ fontSize: 12, color: C.danger, padding: '0 4px' }}>{exportError}</div>}
           {importError && <div style={{ fontSize: 12, color: C.danger, padding: '0 4px' }}>{importError}</div>}
         </div>
 
