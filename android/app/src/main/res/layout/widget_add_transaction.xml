@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ticket #32's widget content. RemoteViews only supports a fixed whitelist of View classes (no
+     WebView, no custom views) — LinearLayout/ImageView/TextView here are all it can ever be, this
+     widget only ever launches the real app (see AddTransactionWidgetProvider.kt). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_add_transaction_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:orientation="horizontal"
+    android:gravity="center"
+    android:padding="12dp">
+
+    <ImageView
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:src="@drawable/ic_widget_add"
+        android:contentDescription="@string/widget_add_transaction_label" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:text="@string/widget_add_transaction_label"
+        android:textColor="#EEF2F9"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+</LinearLayout>
