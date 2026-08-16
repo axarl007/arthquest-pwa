@@ -4,4 +4,5 @@
     <string name="title_activity_main">ArthQuest</string>
     <string name="package_name">com.arthquest.pwa</string>
     <string name="custom_url_scheme">com.arthquest.pwa</string>
+    <string name="widget_add_transaction_label">Add transaction</string>
 </resources>

@@ -24,6 +24,7 @@ import { dueReminders } from './domain/reminders.js';
 import { todayIso } from './domain/format.js';
 import { useNearbySync } from './native/useNearbySync.js';
 import { useAndroidBackButton } from './native/useAndroidBackButton.js';
+import { useQuickAddDeepLink } from './native/useQuickAddDeepLink.js';
 
 const TAB_SCREENS = { home: Home, transactions: Transactions, budget: Budget, quests: Quests };
 
@@ -118,6 +119,22 @@ export default function App() {
       onGoHome: () => navigateToTab('home'),
     },
   );
+
+  // Home-screen widget's "+" tap target (ticket #32) — opens the exact same sheet the FAB does,
+  // stacking on top of whatever screen is currently showing. Guarded on screen !== 'onboarding'
+  // rather than just state.onboarded: that screen is reused for both true first-run onboarding
+  // (state.onboarded false) AND the "redo income split" re-run (state.onboarded stays true —
+  // see Settings.jsx/BudgetActionsSheet.jsx's onAdjustIncomeSplit), and its JSX branch doesn't
+  // render a 'log'-type sheet at all — setting one there would sit inert until the user finished
+  // that flow and screen flipped back, then pop open unprompted on whatever screen they landed on.
+  // Also guarded on !sheet: `sheet` is a single slot, not a stack, so firing while another sheet
+  // (e.g. NewQuestSheet with an unsaved in-progress form) is already open would silently replace
+  // it and lose that input — the deep link can arrive at an arbitrary moment (app backgrounded,
+  // widget tapped) that the FAB's own click handler never has to account for, since the FAB is
+  // unreachable while a sheet's backdrop covers it.
+  useQuickAddDeepLink(() => {
+    if (screen !== 'onboarding' && !sheet) setSheet({ type: 'log' });
+  });
 
   if (screen === 'onboarding') {
     return (
