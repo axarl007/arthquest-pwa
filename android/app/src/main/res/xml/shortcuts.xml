@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static app shortcuts (ticket #34), shown on long-pressing the launcher icon. Each just
+     launches MainActivity via the same deep-link mechanism as the home-screen widget (ticket
+     #33) — see AndroidManifest.xml's intent-filter and src/native/useAppShortcutDeepLink.js — no
+     shortcut writes a transaction/category/quest itself. targetPackage/targetClass are hardcoded
+     rather than using manifest placeholders (${applicationId}), which don't get substituted in a
+     plain resource file the way they do in AndroidManifest.xml itself. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="add_transaction"
+        android:enabled="true"
+        android:icon="@drawable/ic_widget_add"
+        android:shortcutShortLabel="@string/widget_add_transaction_label"
+        android:shortcutLongLabel="@string/shortcut_add_transaction_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.arthquest.pwa"
+            android:targetClass="com.arthquest.pwa.MainActivity"
+            android:data="com.arthquest.pwa://add-transaction" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="add_category"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_add_category"
+        android:shortcutShortLabel="@string/shortcut_add_category_short"
+        android:shortcutLongLabel="@string/shortcut_add_category_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.arthquest.pwa"
+            android:targetClass="com.arthquest.pwa.MainActivity"
+            android:data="com.arthquest.pwa://add-category" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="new_quest"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new_quest"
+        android:shortcutShortLabel="@string/shortcut_new_quest_short"
+        android:shortcutLongLabel="@string/shortcut_new_quest_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.arthquest.pwa"
+            android:targetClass="com.arthquest.pwa.MainActivity"
+            android:data="com.arthquest.pwa://new-quest" />
+    </shortcut>
+</shortcuts>

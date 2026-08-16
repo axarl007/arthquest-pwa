@@ -1,27 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { isQuickAddDeepLink } from './deepLinks.js';
+import { deepLinkAction } from './deepLinks.js';
 
-describe('isQuickAddDeepLink', () => {
-  it('matches the widget quick-add deep link regardless of scheme', () => {
-    expect(isQuickAddDeepLink('com.arthquest.pwa://add-transaction')).toBe(true);
+describe('deepLinkAction', () => {
+  it('recognizes each app-shortcut/widget action regardless of scheme', () => {
+    expect(deepLinkAction('com.arthquest.pwa://add-transaction')).toBe('add-transaction');
+    expect(deepLinkAction('com.arthquest.pwa://add-category')).toBe('add-category');
+    expect(deepLinkAction('com.arthquest.pwa://new-quest')).toBe('new-quest');
   });
 
   it('matches even with a trailing path or query string', () => {
-    expect(isQuickAddDeepLink('com.arthquest.pwa://add-transaction/')).toBe(true);
-    expect(isQuickAddDeepLink('com.arthquest.pwa://add-transaction?source=widget')).toBe(true);
+    expect(deepLinkAction('com.arthquest.pwa://add-transaction/')).toBe('add-transaction');
+    expect(deepLinkAction('com.arthquest.pwa://new-quest?source=shortcut')).toBe('new-quest');
   });
 
-  it('rejects an unrelated host', () => {
-    expect(isQuickAddDeepLink('com.arthquest.pwa://something-else')).toBe(false);
+  it('returns null for an unrelated host', () => {
+    expect(deepLinkAction('com.arthquest.pwa://something-else')).toBe(null);
   });
 
-  it('rejects nullish/empty input without throwing', () => {
-    expect(isQuickAddDeepLink(null)).toBe(false);
-    expect(isQuickAddDeepLink(undefined)).toBe(false);
-    expect(isQuickAddDeepLink('')).toBe(false);
+  it('returns null for nullish/empty input without throwing', () => {
+    expect(deepLinkAction(null)).toBe(null);
+    expect(deepLinkAction(undefined)).toBe(null);
+    expect(deepLinkAction('')).toBe(null);
   });
 
-  it('rejects a malformed URL without throwing', () => {
-    expect(isQuickAddDeepLink('not a url')).toBe(false);
+  it('returns null for a malformed URL without throwing', () => {
+    expect(deepLinkAction('not a url')).toBe(null);
   });
 });
