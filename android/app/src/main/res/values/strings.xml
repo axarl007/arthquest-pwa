@@ -5,4 +5,9 @@
     <string name="package_name">com.arthquest.pwa</string>
     <string name="custom_url_scheme">com.arthquest.pwa</string>
     <string name="widget_add_transaction_label">Add transaction</string>
+    <string name="shortcut_add_transaction_long">Add transaction</string>
+    <string name="shortcut_add_category_short">Add category</string>
+    <string name="shortcut_add_category_long">Add category</string>
+    <string name="shortcut_new_quest_short">New quest</string>
+    <string name="shortcut_new_quest_long">New quest</string>
 </resources>
