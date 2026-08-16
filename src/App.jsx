@@ -23,8 +23,18 @@ import { resolveTransactionSubject } from './domain/transactions.js';
 import { dueReminders } from './domain/reminders.js';
 import { todayIso } from './domain/format.js';
 import { useNearbySync } from './native/useNearbySync.js';
+import { useAndroidBackButton } from './native/useAndroidBackButton.js';
 
 const TAB_SCREENS = { home: Home, transactions: Transactions, budget: Budget, quests: Quests };
+
+// Shared by Settings' own on-screen back arrows and the hardware/gesture back button (ticket #29)
+// so both back out exactly one level the same way: 'categories'/'pairing' return to Settings' main
+// menu, 'pairing-direct' (opened straight from Home, skipping Settings) and 'main' itself both
+// close the whole settings subscreen.
+function settingsBackTarget(settings) {
+  if (settings === 'categories' || settings === 'pairing') return 'main';
+  return null;
+}
 
 export default function App() {
   const { state, setState } = useStore();
@@ -85,6 +95,30 @@ export default function App() {
     setSheet({ type: 'newQuest', initialName: name });
   };
 
+  const navigateToTab = (next) => {
+    setCategoryDetail(null);
+    setQuestDetail(null);
+    setSettings(null);
+    setScreen(next);
+  };
+
+  // Onboarding has no subscreens/tabs of its own to back out of — force categoryDetail/questDetail/
+  // settings/screen to their "nothing open, already home" shape so back only ever closes an open
+  // sheet (addCategory/newQuest) or exits, never jumps to the Home tab mid-onboarding (state.onboarded
+  // is still false then, which would land on an unconfigured Home).
+  useAndroidBackButton(
+    screen === 'onboarding'
+      ? { sheet, categoryDetail: null, questDetail: null, settings: null, screen: 'home' }
+      : { sheet, categoryDetail, questDetail, settings, screen },
+    {
+      onCloseSheet: closeSheet,
+      onCloseCategoryDetail: () => setCategoryDetail(null),
+      onCloseQuestDetail: () => setQuestDetail(null),
+      onCloseSettings: () => setSettings(settingsBackTarget(settings)),
+      onGoHome: () => navigateToTab('home'),
+    },
+  );
+
   if (screen === 'onboarding') {
     return (
       <AppShell>
@@ -126,15 +160,7 @@ export default function App() {
       </div>
       {!subscreenOpen && (
         <>
-          <BottomNav
-            active={screen}
-            onNavigate={(next) => {
-              setCategoryDetail(null);
-              setQuestDetail(null);
-              setSettings(null);
-              setScreen(next);
-            }}
-          />
+          <BottomNav active={screen} onNavigate={navigateToTab} />
           <Fab onClick={() => setSheet({ type: 'log' })} />
         </>
       )}
@@ -142,16 +168,16 @@ export default function App() {
       {settings && (
         <div style={{ position: 'absolute', inset: 0, background: T.frameBg, zIndex: 15, display: 'flex', flexDirection: 'column' }}>
           {settings === 'categories' ? (
-            <Categories onBack={() => setSettings('main')} onOpenAddCategory={openAddCategory} />
+            <Categories onBack={() => setSettings(settingsBackTarget(settings))} onOpenAddCategory={openAddCategory} />
           ) : settings === 'pairing' || settings === 'pairing-direct' ? (
             // 'pairing-direct' (Home's sync indicator/nudge, which skips Settings entirely) backs
             // out to the tab screen it was opened from, not to a Settings main menu the user never
             // visited — 'pairing' (opened via Settings' own "Pair a device" button) still backs out
             // to Settings main, matching every other subscreen's "return to where you came from".
-            <Pairing onBack={() => setSettings(settings === 'pairing-direct' ? null : 'main')} nearby={nearby} />
+            <Pairing onBack={() => setSettings(settingsBackTarget(settings))} nearby={nearby} />
           ) : (
             <Settings
-              onBack={() => setSettings(null)}
+              onBack={() => setSettings(settingsBackTarget(settings))}
               onOpenCategories={() => setSettings('categories')}
               onOpenPairing={() => setSettings('pairing')}
               onAdjustIncomeSplit={() => {
