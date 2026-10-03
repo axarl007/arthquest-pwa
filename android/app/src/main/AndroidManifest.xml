@@ -41,6 +41,23 @@
                 <data android:host="new-quest" />
             </intent-filter>
 
+            <!-- Statement import via Android's share sheet (ticket #40): PhonePe and file managers
+                 label the same CSV inconsistently (text/csv, text/comma-separated-values,
+                 text/plain, application/csv, application/vnd.ms-excel, or the generic
+                 application/octet-stream), so the filter accepts all of them; the content is what
+                 decides — anything that isn't a recognized statement gets the same "Unrecognized
+                 file" error as Settings' file picker. Handled by StatementSharePlugin.kt. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="text/comma-separated-values" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/csv" />
+                <data android:mimeType="application/vnd.ms-excel" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+
             <!-- Static app shortcuts (ticket #34) shown on long-pressing the launcher icon. -->
             <meta-data
                 android:name="android.app.shortcuts"

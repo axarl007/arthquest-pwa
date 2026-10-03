@@ -6,6 +6,7 @@ import { SegmentedControl } from '../components/SegmentedControl.jsx';
 import { freshState } from '../store/persistence.js';
 import { buildBackupJson, buildTransactionsCsv, parseBackupJson } from '../domain/exportData.js';
 import { exportFile } from '../native/exportFile.js';
+import { parseStatement, StatementImportError } from '../domain/importers/index.js';
 
 const THEME_OPTIONS = [{ key: 'dark', label: 'Dark' }, { key: 'vibrant', label: 'Vibrant' }];
 const ICON_STYLE_OPTIONS = [{ key: 'flat', label: 'Flat' }, { key: 'cartoon', label: 'Cartoon' }];
@@ -29,7 +30,7 @@ function ensureNotificationPermission() {
   if (Notification.permission === 'default') Notification.requestPermission();
 }
 
-export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpenPairing, onReset }) {
+export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpenPairing, onOpenImport, initialStatementError = null, onReset }) {
   const { state, setState } = useStore();
   const { T, C } = useTheme();
   const [resetStep, setResetStep] = useState(0); // 0 closed, 1 first confirm, 2 final confirm
@@ -42,6 +43,9 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
   // instead of just relying on nobody double-tapping.
   const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef(null);
+  const statementInputRef = useRef(null);
+  // Seeded by App when a file shared in from Android's share sheet (#40) couldn't be imported.
+  const [statementError, setStatementError] = useState(initialStatementError);
 
   const setReminderToggle = (key, enabled) => {
     if (enabled) ensureNotificationPermission();
@@ -69,6 +73,23 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
         setImportError("Couldn't read that file — make sure it's an ArthQuest JSON backup.");
       }
     };
+    reader.readAsText(file);
+  };
+
+  const importStatement = (file) => {
+    setStatementError(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      let draft;
+      try {
+        draft = parseStatement(String(reader.result));
+      } catch (e) {
+        setStatementError(e instanceof StatementImportError ? e.message : "Couldn't read that file.");
+        return;
+      }
+      onOpenImport(draft);
+    };
+    reader.onerror = () => setStatementError("Couldn't read that file.");
     reader.readAsText(file);
   };
 
@@ -156,6 +177,25 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
               e.target.value = '';
             }}
           />
+          <button type="button" onClick={() => statementInputRef.current?.click()} style={dataButtonStyle}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>receipt_long</span>
+            Import bank statement
+          </button>
+          {/* No `accept` filter: Android often reports a statement CSV as application/octet-stream
+              (or similar), and a strict filter greys out the user's own file in the picker. Format
+              detection happens on the content instead (domain/importers). */}
+          <input
+            ref={statementInputRef}
+            type="file"
+            aria-label="Bank statement file"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) importStatement(file);
+              e.target.value = '';
+            }}
+          />
+          {statementError && <div style={{ fontSize: 12, color: C.danger, padding: '0 4px' }}>{statementError}</div>}
           {exportError && <div style={{ fontSize: 12, color: C.danger, padding: '0 4px' }}>{exportError}</div>}
           {importError && <div style={{ fontSize: 12, color: C.danger, padding: '0 4px' }}>{importError}</div>}
         </div>

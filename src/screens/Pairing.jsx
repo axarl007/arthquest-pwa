@@ -275,6 +275,17 @@ export function Pairing({ onBack, nearby }) {
               // itself is otherwise still 'connected', not just while status === 'error'.
               <div style={{ fontSize: 12, color: C.danger, marginTop: 6, lineHeight: 1.4 }}>{nearby.error}</div>
             )}
+            {nearby.sizeStatus === 'too_large' && (
+              <div style={{ fontSize: 12, color: C.danger, marginTop: 6, lineHeight: 1.4 }}>
+                Too much data to sync in one go — this phone's changes can't be sent until an app update fixes it. Changes from {state.pairedDevice.name} still arrive.
+              </div>
+            )}
+            {nearby.sizeStatus === 'warning' && (
+              // #39: the whole-state sync message is past 70% of Nearby's BYTES payload cap.
+              <div style={{ fontSize: 12, color: C.warn, marginTop: 6, lineHeight: 1.4 }}>
+                Sync data is getting large. Syncing still works, but an app update will be needed before it hits the limit.
+              </div>
+            )}
             {nearby.permissionDenied && (
               // A distinct, actionable explainer (ticket #22) rather than just the generic error
               // line above — covers both "never granted" (declined the prompt) and "revoked later

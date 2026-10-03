@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useStore } from './store/useStore.js';
 import { useTheme } from './theme/useTheme.js';
 import { AppShell } from './components/AppShell.jsx';
@@ -19,12 +19,18 @@ import { QuestDetail } from './screens/QuestDetail.jsx';
 import { Settings } from './screens/Settings.jsx';
 import { Categories } from './screens/Categories.jsx';
 import { Pairing } from './screens/Pairing.jsx';
+import { ImportReview } from './screens/ImportReview.jsx';
+import { ImportUndoToast } from './components/ImportUndoToast.jsx';
+import { undoImport, canUndoImport } from './domain/statementImport.js';
 import { resolveTransactionSubject } from './domain/transactions.js';
 import { dueReminders } from './domain/reminders.js';
 import { todayIso } from './domain/format.js';
 import { useNearbySync } from './native/useNearbySync.js';
 import { useAndroidBackButton } from './native/useAndroidBackButton.js';
 import { useAppShortcutDeepLink } from './native/useAppShortcutDeepLink.js';
+import { useSharedStatement } from './native/useSharedStatement.js';
+import { canOpenSharedStatement } from './domain/sharedStatement.js';
+import { parseStatement, StatementImportError } from './domain/importers/index.js';
 
 const TAB_SCREENS = { home: Home, transactions: Transactions, budget: Budget, quests: Quests };
 
@@ -33,7 +39,9 @@ const TAB_SCREENS = { home: Home, transactions: Transactions, budget: Budget, qu
 // menu, 'pairing-direct' (opened straight from Home, skipping Settings) and 'main' itself both
 // close the whole settings subscreen.
 function settingsBackTarget(settings) {
-  if (settings === 'categories' || settings === 'pairing') return 'main';
+  // 'import-direct' (a statement shared in from Android's share sheet, #40) closes straight back to
+  // whatever was showing, like 'pairing-direct'.
+  if (settings === 'categories' || settings === 'pairing' || settings === 'import') return 'main';
   return null;
 }
 
@@ -49,7 +57,18 @@ export default function App() {
   // Subscreen state for Quests -> quest detail; cleared whenever we navigate away from it.
   const [questDetail, setQuestDetail] = useState(null); // null | { questId, autoRedeem? }
   // Subscreen state for Home -> Settings (-> Categories/Pairing); cleared whenever we navigate away.
-  const [settings, setSettings] = useState(null); // null | 'main' | 'categories' | 'pairing' | 'pairing-direct'
+  const [settings, setSettings] = useState(null); // null | 'main' | 'categories' | 'pairing' | 'pairing-direct' | 'import' | 'import-direct'
+  // The parsed statement (domain/importers parseStatement result) the 'import' subscreen reviews.
+  const [importDraft, setImportDraft] = useState(null);
+  // The just-submitted import batch the undo toast (#38) can reverse: null | { transactionIds, previousPayeeEntries }.
+  const [importUndo, setImportUndo] = useState(null);
+  const dismissImportUndo = useCallback(() => setImportUndo(null), []);
+  // A statement shared in from Android's share sheet (#40), held until canOpenSharedStatement
+  // allows opening it: null | { text } | { error }.
+  const [pendingShare, setPendingShare] = useState(null);
+  // { message, id } to show on Settings' main screen when a shared file can't be imported — `id`
+  // remounts Settings so a new error shows even if Settings was already open.
+  const [shareError, setShareError] = useState(null);
   // null | { type: 'log', initialType?, initialCategoryId? } | { type: 'txActions', tx } |
   // { type: 'budgetActions' } | { type: 'addCategory', context, initialGroup } | { type: 'newQuest', initialName? }
   const [sheet, setSheet] = useState(null);
@@ -136,6 +155,37 @@ export default function App() {
   const openFromShortcut = (openFn) => {
     if (screen !== 'onboarding' && !sheet) openFn();
   };
+  useSharedStatement(setPendingShare);
+  useEffect(() => {
+    if (!pendingShare || !canOpenSharedStatement({ screen, sheet, settings, categoryDetail, questDetail })) return;
+    setPendingShare(null);
+    let draft = null;
+    let error = pendingShare.error ?? null;
+    if (!error) {
+      try {
+        draft = parseStatement(pendingShare.text);
+      } catch (e) {
+        error = e instanceof StatementImportError ? e.message : "Couldn't read that file.";
+      }
+    }
+    if (draft) {
+      setShareError(null);
+      setImportDraft(draft);
+      // Over Settings' main screen it's a normal 'import' (Back returns to Settings); over a tab
+      // it's 'import-direct' (Back returns to that tab).
+      setSettings(settings === 'main' ? 'import' : 'import-direct');
+    } else {
+      // Shown on Settings' Data section, next to the in-app picker that hits the same errors.
+      setShareError({ message: error, id: Date.now() });
+      setSettings('main');
+    }
+  }, [pendingShare, screen, sheet, settings, categoryDetail, questDetail]);
+  // A share error belongs to the Settings visit it opened — clear it once Settings' main screen
+  // isn't showing, so it doesn't reappear on every later visit.
+  useEffect(() => {
+    if (settings !== 'main') setShareError((e) => (e?.message ? { ...e, message: null } : e));
+  }, [settings]);
+
   useAppShortcutDeepLink({
     'add-transaction': () => openFromShortcut(() => setSheet({ type: 'log' })),
     'add-category': () => openFromShortcut(() => openAddCategory('budget')),
@@ -198,11 +248,28 @@ export default function App() {
             // visited — 'pairing' (opened via Settings' own "Pair a device" button) still backs out
             // to Settings main, matching every other subscreen's "return to where you came from".
             <Pairing onBack={() => setSettings(settingsBackTarget(settings))} nearby={nearby} />
+          ) : (settings === 'import' || settings === 'import-direct') && importDraft ? (
+            <ImportReview
+              draft={importDraft}
+              onBack={() => setSettings(settingsBackTarget(settings))}
+              onImported={(batch) => {
+                setImportDraft(null);
+                setImportUndo(batch);
+                navigateToTab('transactions');
+              }}
+            />
           ) : (
             <Settings
+              key={shareError?.id ?? 'settings'}
               onBack={() => setSettings(settingsBackTarget(settings))}
               onOpenCategories={() => setSettings('categories')}
               onOpenPairing={() => setSettings('pairing')}
+              initialStatementError={shareError?.message ?? null}
+              onOpenImport={(draft) => {
+                setShareError(null);
+                setImportDraft(draft);
+                setSettings('import');
+              }}
               onAdjustIncomeSplit={() => {
                 setSettings(null);
                 setScreen('onboarding');
@@ -238,6 +305,22 @@ export default function App() {
             onAddContribution={(questId) => setSheet({ type: 'log', initialType: 'quest_contribution', initialCategoryId: questId })}
           />
         </div>
+      )}
+
+      {/* canUndoImport hides the toast once undo would be unsafe — a reset or backup restore
+          replaced the batch, or a quest it completed has since been redeemed. */}
+      {importUndo && canUndoImport(state, importUndo) && (
+        <ImportUndoToast
+          // Keyed per batch so a new import restarts the auto-dismiss timer.
+          key={importUndo.transactionIds[0]}
+          count={importUndo.transactionIds.length}
+          onDismiss={dismissImportUndo}
+          onUndo={() => {
+            const batch = importUndo;
+            setState((s) => (canUndoImport(s, batch) ? undoImport(s, batch) : s));
+            setImportUndo(null);
+          }}
+        />
       )}
 
       {sheet?.type === 'log' && (

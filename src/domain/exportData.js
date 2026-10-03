@@ -45,6 +45,10 @@ function transactionToExport(t) {
     id: t.id, type: TX_TYPE_TO_EXPORT[t.type], amount: t.amount, date: t.date, createdAt: t.createdAt,
     categoryId: t.categoryId ?? null, incomeCategoryId: t.incomeCategoryId ?? null,
     description: t.description ?? '', isRedemption: t.isRedemption,
+    // Statement-import dedup key (ticket #36) — no Android column, same precedent as `color`.
+    // Only written when present so manual transactions keep Android's exact field set; dropping
+    // it on a restore would let the same statement be imported twice.
+    ...(t.externalId ? { externalId: t.externalId } : {}),
   };
 }
 
@@ -53,6 +57,7 @@ function transactionFromExport(t) {
     id: t.id, type: TX_TYPE_FROM_EXPORT[t.type], amount: t.amount, date: t.date, createdAt: t.createdAt,
     categoryId: t.categoryId ?? null, incomeCategoryId: t.incomeCategoryId ?? null,
     description: t.description ?? '', isRedemption: t.isRedemption,
+    ...(t.externalId ? { externalId: t.externalId } : {}),
   };
 }
 
@@ -67,6 +72,9 @@ export function buildBackupJson(state) {
     // concept in its schema at all.
     transactions: notDeleted(state.transactions).map(transactionToExport),
     budgetAllocations: state.budgetAllocations.map((a) => ({ ...a })),
+    // Statement-import payee memory (ticket #37) — PWA-only, like `settings`; without it a phone
+    // switch would forget every learned payee.
+    payeeCategoryMap: { ...(state.payeeCategoryMap ?? {}) },
     settings: {
       theme: state.theme, iconStyle: state.iconStyle, onboarded: state.onboarded,
       settingsToggles: { ...state.settingsToggles }, lastBackupReminderDate: state.lastBackupReminderDate ?? null,
@@ -101,6 +109,10 @@ export function parseBackupJson(json) {
   for (const c of [...patch.categories, ...patch.incomeCategories]) {
     if (!c.color) c.color = catColor(colorIndex);
     colorIndex++;
+  }
+  // Absent from Android-produced or pre-#37 backups — leave the current map alone then.
+  if (parsed.payeeCategoryMap && typeof parsed.payeeCategoryMap === 'object') {
+    patch.payeeCategoryMap = { ...parsed.payeeCategoryMap };
   }
   if (parsed.settings) {
     if (parsed.settings.theme) patch.theme = parsed.settings.theme;
