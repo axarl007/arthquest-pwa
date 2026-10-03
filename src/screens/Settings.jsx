@@ -30,7 +30,7 @@ function ensureNotificationPermission() {
   if (Notification.permission === 'default') Notification.requestPermission();
 }
 
-export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpenPairing, onOpenImport, onReset }) {
+export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpenPairing, onOpenImport, initialStatementError = null, onReset }) {
   const { state, setState } = useStore();
   const { T, C } = useTheme();
   const [resetStep, setResetStep] = useState(0); // 0 closed, 1 first confirm, 2 final confirm
@@ -44,7 +44,8 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
   const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef(null);
   const statementInputRef = useRef(null);
-  const [statementError, setStatementError] = useState(null);
+  // Seeded by App when a file shared in from Android's share sheet (#40) couldn't be imported.
+  const [statementError, setStatementError] = useState(initialStatementError);
 
   const setReminderToggle = (key, enabled) => {
     if (enabled) ensureNotificationPermission();
