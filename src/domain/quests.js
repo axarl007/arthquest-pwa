@@ -7,9 +7,10 @@ import { makeId } from './categories.js';
  * A new Quest category row — a Quest is a `state.categories` entry (type:'quest', group forced
  * to 'savings'), mirroring CategoryRepository.createQuest exactly: name/icon/targetAmount/
  * targetDate as given, questStatus starts 'active', questRedeemedDate null. `color` follows the
- * same persisted-at-creation convention as every other category (see domain/categories.js).
+ * same persisted-at-creation convention as every other category (see domain/categories.js), as
+ * does `createdAt` (ticket #21's pending-change indicator — see seedDefaultsIfNeeded's own note).
  */
-export function createQuest(name, icon, targetAmount, targetDate, categories, incomeCategories) {
+export function createQuest(name, icon, targetAmount, targetDate, categories, incomeCategories, now = Date.now()) {
   return {
     id: makeId(),
     name,
@@ -17,7 +18,9 @@ export function createQuest(name, icon, targetAmount, targetDate, categories, in
     type: 'quest',
     group: 'savings',
     archived: false,
+    archivedAt: null,
     color: catColor(categories.length + incomeCategories.length),
+    createdAt: now,
     questTargetAmount: targetAmount,
     questTargetDate: targetDate,
     questStatus: 'active',
@@ -101,6 +104,7 @@ export function redeemQuest(quest, transactions, now = new Date()) {
     categoryId: quest.id,
     incomeCategoryId: null,
     isRedemption: true,
+    deletedAt: null,
   };
   return { transaction, questPatch: { questStatus: 'redeemed', questRedeemedDate: date } };
 }

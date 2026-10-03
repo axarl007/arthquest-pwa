@@ -13,6 +13,7 @@
  */
 
 import { catColor } from '../theme/tokens.js';
+import { notDeleted } from './transactions.js';
 
 const CATEGORY_TYPE_TO_EXPORT = { budget: 'BUDGET', quest: 'QUEST' };
 const CATEGORY_TYPE_FROM_EXPORT = { BUDGET: 'budget', QUEST: 'quest' };
@@ -26,7 +27,7 @@ const TX_TYPE_FROM_EXPORT = { INCOME: 'income', EXPENSE: 'expense', QUEST_CONTRI
 function categoryToExport(c) {
   return {
     id: c.id, name: c.name, icon: c.icon, color: c.color, type: CATEGORY_TYPE_TO_EXPORT[c.type], group: GROUP_TO_EXPORT[c.group],
-    archived: c.archived, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
+    archived: c.archived, archivedAt: c.archivedAt ?? null, createdAt: c.createdAt ?? null, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
     questStatus: c.questStatus ? QUEST_STATUS_TO_EXPORT[c.questStatus] : null, questRedeemedDate: c.questRedeemedDate ?? null,
   };
 }
@@ -34,7 +35,7 @@ function categoryToExport(c) {
 function categoryFromExport(c) {
   return {
     id: c.id, name: c.name, icon: c.icon, color: c.color, type: CATEGORY_TYPE_FROM_EXPORT[c.type], group: GROUP_FROM_EXPORT[c.group],
-    archived: c.archived, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
+    archived: c.archived, archivedAt: c.archivedAt ?? null, createdAt: c.createdAt ?? null, questTargetAmount: c.questTargetAmount ?? null, questTargetDate: c.questTargetDate ?? null,
     questStatus: c.questStatus ? QUEST_STATUS_FROM_EXPORT[c.questStatus] : null, questRedeemedDate: c.questRedeemedDate ?? null,
   };
 }
@@ -44,6 +45,10 @@ function transactionToExport(t) {
     id: t.id, type: TX_TYPE_TO_EXPORT[t.type], amount: t.amount, date: t.date, createdAt: t.createdAt,
     categoryId: t.categoryId ?? null, incomeCategoryId: t.incomeCategoryId ?? null,
     description: t.description ?? '', isRedemption: t.isRedemption,
+    // Statement-import dedup key (ticket #36) — no Android column, same precedent as `color`.
+    // Only written when present so manual transactions keep Android's exact field set; dropping
+    // it on a restore would let the same statement be imported twice.
+    ...(t.externalId ? { externalId: t.externalId } : {}),
   };
 }
 
@@ -52,6 +57,7 @@ function transactionFromExport(t) {
     id: t.id, type: TX_TYPE_FROM_EXPORT[t.type], amount: t.amount, date: t.date, createdAt: t.createdAt,
     categoryId: t.categoryId ?? null, incomeCategoryId: t.incomeCategoryId ?? null,
     description: t.description ?? '', isRedemption: t.isRedemption,
+    ...(t.externalId ? { externalId: t.externalId } : {}),
   };
 }
 
@@ -59,12 +65,20 @@ function transactionFromExport(t) {
 export function buildBackupJson(state) {
   const backup = {
     categories: state.categories.map(categoryToExport),
-    incomeCategories: state.incomeCategories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color })),
-    transactions: state.transactions.map(transactionToExport),
+    incomeCategories: state.incomeCategories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color, createdAt: c.createdAt ?? null })),
+    // Tombstoned transactions (see domain/transactions.js's deleteTransaction) are excluded — a
+    // backup is a single-device restore point, not a sync payload, so there's no merge to protect
+    // against here; keeping them out matches Android's DataExportFormatter, which has no delete
+    // concept in its schema at all.
+    transactions: notDeleted(state.transactions).map(transactionToExport),
     budgetAllocations: state.budgetAllocations.map((a) => ({ ...a })),
+    // Statement-import payee memory (ticket #37) — PWA-only, like `settings`; without it a phone
+    // switch would forget every learned payee.
+    payeeCategoryMap: { ...(state.payeeCategoryMap ?? {}) },
     settings: {
       theme: state.theme, iconStyle: state.iconStyle, onboarded: state.onboarded,
       settingsToggles: { ...state.settingsToggles }, lastBackupReminderDate: state.lastBackupReminderDate ?? null,
+      lastIncome: state.lastIncome ?? null,
     },
   };
   return JSON.stringify(backup, null, 2);
@@ -83,7 +97,7 @@ export function parseBackupJson(json) {
   }
   const patch = {
     categories: parsed.categories.map(categoryFromExport),
-    incomeCategories: (parsed.incomeCategories ?? []).map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color })),
+    incomeCategories: (parsed.incomeCategories ?? []).map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color, createdAt: c.createdAt ?? null })),
     transactions: parsed.transactions.map(transactionFromExport),
     budgetAllocations: (parsed.budgetAllocations ?? []).map((a) => ({ ...a })),
   };
@@ -96,12 +110,21 @@ export function parseBackupJson(json) {
     if (!c.color) c.color = catColor(colorIndex);
     colorIndex++;
   }
+  // Absent from Android-produced or pre-#37 backups — leave the current map alone then.
+  if (parsed.payeeCategoryMap && typeof parsed.payeeCategoryMap === 'object') {
+    patch.payeeCategoryMap = { ...parsed.payeeCategoryMap };
+  }
   if (parsed.settings) {
     if (parsed.settings.theme) patch.theme = parsed.settings.theme;
     if (parsed.settings.iconStyle) patch.iconStyle = parsed.settings.iconStyle;
     if (typeof parsed.settings.onboarded === 'boolean') patch.onboarded = parsed.settings.onboarded;
     if (parsed.settings.settingsToggles) patch.settingsToggles = { ...parsed.settings.settingsToggles };
     if (parsed.settings.lastBackupReminderDate) patch.lastBackupReminderDate = parsed.settings.lastBackupReminderDate;
+    // Restoring a backup should repopulate the "Redo income split" prefill (see
+    // store/persistence.js's lastIncome) — otherwise an imported backup with real
+    // budgetAllocations still shows a blank ₹0 income on re-entry, the exact bug that field
+    // exists to prevent for the in-place re-entry path.
+    if (typeof parsed.settings.lastIncome === 'number') patch.lastIncome = parsed.settings.lastIncome;
   }
   return patch;
 }
@@ -116,7 +139,7 @@ export function buildTransactionsCsv(state) {
   const categoryNameById = new Map(state.categories.map((c) => [c.id, c.name]));
   const incomeCategoryNameById = new Map(state.incomeCategories.map((c) => [c.id, c.name]));
   const header = ['Date', 'Type', 'Category', 'Description', 'Amount'].join(',');
-  const rows = state.transactions.map((t) => {
+  const rows = notDeleted(state.transactions).map((t) => {
     const categoryName = t.type === 'income'
       ? incomeCategoryNameById.get(t.incomeCategoryId) ?? ''
       : categoryNameById.get(t.categoryId) ?? '';

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useStore } from '../../store/useStore.js';
-import { useTheme } from '../../theme/useTheme.js';
-import { GROUP_LABELS, makeId } from '../../domain/categories.js';
+import { useTheme, nativeColorScheme } from '../../theme/useTheme.js';
+import { makeId } from '../../domain/categories.js';
+import { categoryOptionsForType } from '../../domain/categoryOptions.js';
 import { withRecomputedQuestStatus } from '../../domain/quests.js';
-import { QUEST_COLOR } from '../../theme/tokens.js';
 import { todayIso } from '../../domain/format.js';
 import { BottomSheet } from './BottomSheet.jsx';
 import { CategoryIcon } from '../CategoryIcon.jsx';
@@ -14,25 +14,9 @@ const TYPE_DEFS = [
   { key: 'quest_contribution', label: 'Quest' },
 ];
 
-// Matches the design spec's picker-dropdown color rule: an income or budget category shows its
-// own persisted color, but every quest option uses the same fixed quest accent (not per-quest).
-function optionsForType(type, state) {
-  if (type === 'income') {
-    return state.incomeCategories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color, tag: 'Income' }));
-  }
-  if (type === 'quest_contribution') {
-    return state.categories
-      .filter((c) => c.type === 'quest' && c.questStatus !== 'redeemed')
-      .map((c) => ({ id: c.id, name: c.name, icon: c.icon || 'flag', color: QUEST_COLOR, tag: 'Quest' }));
-  }
-  return state.categories
-    .filter((c) => c.type === 'budget' && !c.archived)
-    .map((c) => ({ id: c.id, name: c.name, icon: c.icon, color: c.color, tag: GROUP_LABELS[c.group] }));
-}
-
 export function LogTransactionSheet({ initialType = 'expense', initialCategoryId = null, onClose }) {
   const { state, setState } = useStore();
-  const { T, C, iconStyle } = useTheme();
+  const { T, C, theme, iconStyle } = useTheme();
 
   const [type, setType] = useState(initialType);
   const [amount, setAmount] = useState('');
@@ -42,7 +26,7 @@ export function LogTransactionSheet({ initialType = 'expense', initialCategoryId
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [search, setSearch] = useState('');
 
-  const options = optionsForType(type, state);
+  const options = categoryOptionsForType(type, state);
   const filteredOptions = search.trim()
     ? options.filter((o) => o.name.toLowerCase().includes(search.trim().toLowerCase()))
     : options;
@@ -72,6 +56,7 @@ export function LogTransactionSheet({ initialType = 'expense', initialCategoryId
       categoryId: type === 'income' ? null : categoryId,
       incomeCategoryId: type === 'income' ? categoryId : null,
       isRedemption: false,
+      deletedAt: null,
     };
     setState((s) => {
       const transactions = [transaction, ...s.transactions];
@@ -191,7 +176,11 @@ export function LogTransactionSheet({ initialType = 'expense', initialCategoryId
         max={todayIso()}
         value={date}
         onChange={(e) => setDate(e.target.value)}
-        style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 12, fontSize: 13, color: T.text, marginTop: 14, outline: 'none' }}
+        // colorScheme follows the app's own theme (not hardcoded 'dark') so the native picker
+        // popup and calendar-icon affordance render in the matching UA palette under Vibrant
+        // (light) too — the default browser popup otherwise looks jarringly out of place against
+        // every other control here.
+        style={{ width: '100%', background: T.inputBg, border: 'none', borderRadius: 12, padding: 12, fontSize: 13, color: T.text, marginTop: 14, outline: 'none', colorScheme: nativeColorScheme(theme) }}
       />
       <input
         type="text"

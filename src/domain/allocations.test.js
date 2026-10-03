@@ -114,6 +114,13 @@ describe('saveAllocations', () => {
     const rows = [{ categoryId: '1', percentage: 33.3 }, { categoryId: '2', percentage: 33.3 }, { categoryId: '3', percentage: 33.4 }];
     expect(() => saveAllocations(120000, rows, '2026-08')).not.toThrow();
   });
+
+  it('stamps both updatedAt and createdAt with the given timestamp (merge priority and the sync pending-change indicator rely on these separately)', () => {
+    const rows = [{ categoryId: '1', percentage: 25 }];
+    const result = saveAllocations(120000, rows, '2026-08', 12345);
+    expect(result[0].updatedAt).toBe(12345);
+    expect(result[0].createdAt).toBe(12345);
+  });
 });
 
 describe('sanitizePercentageInput', () => {
@@ -191,5 +198,19 @@ describe('ensureMonthSeeded', () => {
   it('is a no-op if the previous month has no rows to copy (e.g. before onboarding)', () => {
     const result = ensureMonthSeeded([], '2026-08');
     expect(result).toEqual([]);
+  });
+
+  it('carries the source updatedAt forward (for merge priority) but always stamps a fresh createdAt (the row id itself is new)', () => {
+    const existing = [{ id: 'a1', categoryId: '1', month: '2026-07', percentage: 25, amount: 30000, updatedAt: 1000, createdAt: 1000 }];
+    const result = ensureMonthSeeded(existing, '2026-08', 9000);
+    const augRow = result.find((r) => r.month === '2026-08');
+    expect(augRow.updatedAt).toBe(1000);
+    expect(augRow.createdAt).toBe(9000);
+  });
+
+  it('falls back createdAt to now for a source row with no createdAt (pre-sync data)', () => {
+    const existing = [{ id: 'a1', categoryId: '1', month: '2026-07', percentage: 25, amount: 30000 }];
+    const result = ensureMonthSeeded(existing, '2026-08', 9000);
+    expect(result.find((r) => r.month === '2026-08').createdAt).toBe(9000);
   });
 });

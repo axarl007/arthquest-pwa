@@ -39,6 +39,16 @@ export function makeId() {
 }
 
 /**
+ * Flips a budget category's `archived` flag and stamps `archivedAt` with when it last changed —
+ * categories are never removed from the array (only archived/unarchived), so this timestamp is
+ * the field a future multi-device merge needs to resolve two devices toggling the same category
+ * differently while offline, the same role `deletedAt` plays for transactions.
+ */
+export function toggleArchived(categories, categoryId, now = Date.now()) {
+  return categories.map((c) => (c.id === categoryId ? { ...c, archived: !c.archived, archivedAt: now } : c));
+}
+
+/**
  * Mirrors OnboardingViewModel.seedDefaultsIfNeeded(): creates the default budget categories only
  * if no BUDGET-type category exists yet (quest-only state still gets seeded), and the default
  * income categories only if none exist at all. Idempotent — a no-op key is simply absent from the
@@ -50,8 +60,12 @@ export function makeId() {
  * matching the design spec's own buildCategories()/buildIncomeCats() — and persisted on the
  * category/income-category object rather than recomputed from display position, since sort order
  * (e.g. onboarding's alphabetical rows) must not change which color a category has.
+ *
+ * `createdAt` likewise has no Android counterpart — it exists purely so sync's pending-change
+ * indicator (ticket #21, `domain/sync.js`'s `pendingChangeCount`) can tell a category created
+ * after the last sync apart from one that already reached the peer.
  */
-export function seedDefaultsIfNeeded(state) {
+export function seedDefaultsIfNeeded(state, now = Date.now()) {
   const patch = {};
   const hasBudgetCategory = state.categories.some((c) => c.type === 'budget');
   let nextColorIndex = state.categories.length + state.incomeCategories.length;
@@ -63,7 +77,9 @@ export function seedDefaultsIfNeeded(state) {
       type: 'budget',
       group: seed.group,
       archived: false,
+      archivedAt: null,
       color: catColor(nextColorIndex++),
+      createdAt: now,
     }));
     patch.categories = [...state.categories, ...seeded];
   }
@@ -73,6 +89,7 @@ export function seedDefaultsIfNeeded(state) {
       name: seed.name,
       icon: seed.icon,
       color: catColor(nextColorIndex++),
+      createdAt: now,
     }));
   }
   return patch;

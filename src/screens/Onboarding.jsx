@@ -62,7 +62,11 @@ export function Onboarding({ onFinish, onOpenAddCategory }) {
   const monthKey = useMemo(() => currentMonthKey(), []);
 
   const [rows, setRows] = useState(null);
-  const [incomeInput, setIncomeInput] = useState('');
+  // Seeded from the last income actually saved (state.lastIncome), not always blank — this
+  // screen is also reached via Settings' "Redo income split" (a normal in-place re-entry, not a
+  // fresh start), and re-typing the same figure every time was the reported bug. A first-ever
+  // onboarding has no lastIncome yet, so it still starts blank as before.
+  const [incomeInput, setIncomeInput] = useState(() => (state.lastIncome ? groupIndianDigits(String(state.lastIncome)) : ''));
 
   // Seed default categories (if none exist yet) and load this month's onboarding rows once, on
   // mount — mirrors OnboardingViewModel's init{} (seedDefaultsIfNeeded then loadRows), done
@@ -103,6 +107,7 @@ export function Onboarding({ onFinish, onOpenAddCategory }) {
     setState((s) => ({
       budgetAllocations: [...s.budgetAllocations.filter((a) => a.month !== monthKey), ...newAllocations],
       onboarded: true,
+      lastIncome: income,
     }));
     onFinish();
   };

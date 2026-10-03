@@ -74,8 +74,19 @@ export function parsePercentageInput(text) {
  * affordance, matching the Android repository's own `require()` guard. Returns only the new rows
  * for `monthKey`; the caller is responsible for replacing any prior rows for that month in the
  * full allocations list (delete-then-insert, like the Android transaction).
+ *
+ * `updatedAt`/`createdAt` have no Android schema counterpart — like transactions' `deletedAt` and
+ * categories' `archivedAt`, they exist solely for multi-device sync. They answer two different
+ * questions and are NOT interchangeable (see ensureMonthSeeded's own note for why):
+ *   - `updatedAt`: when this row's *content* last genuinely changed — what `domain/sync.js`'s
+ *     merge (#19) uses to pick the more-recently-edited row when two devices independently
+ *     replace the same (categoryId, month) row with different ids while offline.
+ *   - `createdAt`: when this exact row *id* was born — always fresh, unconditionally, since every
+ *     call site here mints a brand-new id whether it's a real edit or a mechanical copy. What the
+ *     pending-change indicator (`domain/sync.js`'s `pendingChangeCount`, ticket #21) uses to tell
+ *     "the peer has never seen this row" apart from "this row's content happens to be old."
  */
-export function saveAllocations(income, rows, monthKey) {
+export function saveAllocations(income, rows, monthKey, now = Date.now()) {
   const total = halfUpRound(rows.reduce((sum, r) => sum + r.percentage, 0), 2);
   if (total > 100) {
     throw new Error(`Allocations for ${monthKey} sum to ${total}% which exceeds 100%`);
@@ -86,6 +97,8 @@ export function saveAllocations(income, rows, monthKey) {
     month: monthKey,
     percentage: r.percentage,
     amount: halfUpRound((r.percentage / 100) * income, 2),
+    updatedAt: now,
+    createdAt: now,
   }));
 }
 
@@ -94,12 +107,21 @@ export function saveAllocations(income, rows, monthKey) {
  * yet but the immediately preceding month does, copies that month's rows forward verbatim (new
  * ids, same percentages/amounts) so a newly-opened month always has a budget rather than blank
  * categories. No-ops if `monthKey` already has rows, or the previous month has none either.
+ *
+ * Carries the source row's own `updatedAt` forward onto each copy (falling back to `now` only
+ * for pre-sync data that never had one) rather than stamping a fresh one: this is a mechanical
+ * copy triggered just by opening a new month (see Budget.jsx's mount effect), not a real edit, so
+ * it must not out-rank an actual `saveAllocations` edit a peer made to that same month — a sync
+ * merge (`domain/sync.js`) has no way to tell "copied verbatim" apart from "deliberately changed"
+ * if both stamp `now`. `createdAt`, unlike `updatedAt`, IS always stamped fresh here — this row's
+ * id genuinely didn't exist a moment ago, regardless of whether its content is a verbatim copy,
+ * so it's still correctly "pending" for a peer that hasn't seen this id yet.
  */
-export function ensureMonthSeeded(budgetAllocations, monthKey) {
+export function ensureMonthSeeded(budgetAllocations, monthKey, now = Date.now()) {
   if (budgetAllocations.some((a) => a.month === monthKey)) return budgetAllocations;
   const prevKey = addMonthsToKey(monthKey, -1);
   const previous = budgetAllocations.filter((a) => a.month === prevKey);
   if (previous.length === 0) return budgetAllocations;
-  const seeded = previous.map((a) => ({ ...a, id: makeId(), month: monthKey }));
+  const seeded = previous.map((a) => ({ ...a, id: makeId(), month: monthKey, updatedAt: a.updatedAt ?? now, createdAt: now }));
   return [...budgetAllocations, ...seeded];
 }

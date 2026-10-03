@@ -1,0 +1,613 @@
+import { describe, it, expect } from 'vitest';
+import {
+  mergeState, syncPayload, applyIncomingSync, pendingChangeCount, formatSyncedLabel, shouldNudgeStaleSync,
+  STALE_SYNC_THRESHOLD_MS, syncSizeStatus, MAX_SYNC_PAYLOAD_BYTES,
+} from './sync.js';
+import { ensureMonthSeeded, saveAllocations } from './allocations.js';
+import { cumulativePosition } from './transactions.js';
+
+const tx = (id, over = {}) => ({
+  id, type: 'expense', amount: 100, date: '2026-08-01', createdAt: 1000, categoryId: 'cat1',
+  incomeCategoryId: null, description: '', isRedemption: false, deletedAt: null, ...over,
+});
+
+const cat = (id, over = {}) => ({
+  id, name: 'Groceries', icon: 'shopping_cart', type: 'budget', group: 'needs', archived: false,
+  archivedAt: null, color: '#000', createdAt: null, questTargetAmount: null, questTargetDate: null,
+  questStatus: null, questRedeemedDate: null, ...over,
+});
+
+const quest = (id, over = {}) => cat(id, {
+  type: 'quest', group: 'savings', questTargetAmount: 1000, questTargetDate: '2026-12-31',
+  questStatus: 'active', ...over,
+});
+
+const income = (id, over = {}) => ({ id, name: 'Salary', icon: 'work', color: '#111', createdAt: null, ...over });
+
+const alloc = (id, over = {}) => ({ id, categoryId: 'cat1', month: '2026-08', percentage: 25, amount: 30000, updatedAt: 1000, createdAt: 1000, ...over });
+
+const state = (over = {}) => ({ transactions: [], categories: [], incomeCategories: [], budgetAllocations: [], ...over });
+
+describe('mergeState — transactions', () => {
+  it('unions transactions present on only one side', () => {
+    const local = state({ transactions: [tx('t1')] });
+    const remote = state({ transactions: [tx('t2')] });
+    const result = mergeState(local, remote);
+    expect(result.transactions.map((t) => t.id).sort()).toEqual(['t1', 't2']);
+  });
+
+  it('keeps a transaction deleted locally even though the remote copy has no tombstone yet (resurrection regression)', () => {
+    const local = state({ transactions: [tx('t1', { deletedAt: 5000 })] });
+    const remote = state({ transactions: [tx('t1', { deletedAt: null })] });
+    const result = mergeState(local, remote);
+    expect(result.transactions.find((t) => t.id === 't1').deletedAt).toBe(5000);
+  });
+
+  it('keeps a transaction deleted remotely even though the local copy has no tombstone (symmetric)', () => {
+    const local = state({ transactions: [tx('t1', { deletedAt: null })] });
+    const remote = state({ transactions: [tx('t1', { deletedAt: 7000 })] });
+    const result = mergeState(local, remote);
+    expect(result.transactions.find((t) => t.id === 't1').deletedAt).toBe(7000);
+  });
+
+  it('when both sides tombstoned the same id, keeps the earlier deletedAt deterministically regardless of argument order', () => {
+    const a = state({ transactions: [tx('t1', { deletedAt: 9000 })] });
+    const b = state({ transactions: [tx('t1', { deletedAt: 3000 })] });
+    expect(mergeState(a, b).transactions[0].deletedAt).toBe(3000);
+    expect(mergeState(b, a).transactions[0].deletedAt).toBe(3000);
+  });
+
+  it('never duplicates a transaction id present on both sides', () => {
+    const local = state({ transactions: [tx('t1')] });
+    const remote = state({ transactions: [tx('t1')] });
+    expect(mergeState(local, remote).transactions).toHaveLength(1);
+  });
+});
+
+describe('mergeState — categories (archived)', () => {
+  it('a real toggle beats a never-touched null archivedAt, regardless of which side', () => {
+    const local = state({ categories: [cat('c1', { archived: false, archivedAt: null })] });
+    const remote = state({ categories: [cat('c1', { archived: true, archivedAt: 4000 })] });
+    expect(mergeState(local, remote).categories[0].archived).toBe(true);
+    expect(mergeState(remote, local).categories[0].archived).toBe(true);
+  });
+
+  it('the later archivedAt wins when both sides toggled', () => {
+    const local = state({ categories: [cat('c1', { archived: true, archivedAt: 2000 })] });
+    const remote = state({ categories: [cat('c1', { archived: false, archivedAt: 8000 })] });
+    expect(mergeState(local, remote).categories[0].archived).toBe(false);
+    expect(mergeState(local, remote).categories[0].archivedAt).toBe(8000);
+  });
+
+  it('on an exact archivedAt tie, archived:true wins deterministically regardless of order', () => {
+    const local = state({ categories: [cat('c1', { archived: true, archivedAt: 5000 })] });
+    const remote = state({ categories: [cat('c1', { archived: false, archivedAt: 5000 })] });
+    expect(mergeState(local, remote).categories[0].archived).toBe(true);
+    expect(mergeState(remote, local).categories[0].archived).toBe(true);
+  });
+
+  it('unions categories present on only one side', () => {
+    const local = state({ categories: [cat('c1')] });
+    const remote = state({ categories: [cat('c2')] });
+    expect(mergeState(local, remote).categories.map((c) => c.id).sort()).toEqual(['c1', 'c2']);
+  });
+});
+
+describe('mergeState — quest status', () => {
+  it('recomputes status from merged transactions — a contribution logged only on the remote device can complete a quest', () => {
+    const local = state({
+      categories: [quest('q1', { questTargetAmount: 1000, questStatus: 'active' })],
+      transactions: [{ ...tx('t1', { type: 'quest_contribution', categoryId: 'q1', amount: 400 }) }],
+    });
+    const remote = state({
+      categories: [quest('q1', { questTargetAmount: 1000, questStatus: 'active' })],
+      transactions: [{ ...tx('t2', { type: 'quest_contribution', categoryId: 'q1', amount: 700 }) }],
+    });
+    const result = mergeState(local, remote);
+    const merged = result.categories.find((c) => c.id === 'q1');
+    expect(merged.questStatus).toBe('completed');
+  });
+
+  it('redeemed is terminal — stays redeemed even if the other side still shows active (no resurrection of a redeemed quest)', () => {
+    const local = state({ categories: [quest('q1', { questStatus: 'redeemed', questRedeemedDate: '2026-08-05' })] });
+    const remote = state({ categories: [quest('q1', { questStatus: 'active', questRedeemedDate: null })] });
+    const result = mergeState(local, remote);
+    expect(result.categories[0].questStatus).toBe('redeemed');
+    expect(result.categories[0].questRedeemedDate).toBe('2026-08-05');
+
+    const reversed = mergeState(remote, local);
+    expect(reversed.categories[0].questStatus).toBe('redeemed');
+    expect(reversed.categories[0].questRedeemedDate).toBe('2026-08-05');
+  });
+
+  it('drops back to active if the merged contributions no longer reach the target (a contribution was deleted on one side)', () => {
+    const local = state({
+      categories: [quest('q1', { questTargetAmount: 1000, questStatus: 'completed' })],
+      transactions: [tx('t1', { type: 'quest_contribution', categoryId: 'q1', amount: 1000, deletedAt: 9000 })],
+    });
+    const remote = state({
+      categories: [quest('q1', { questTargetAmount: 1000, questStatus: 'completed' })],
+      transactions: [tx('t1', { type: 'quest_contribution', categoryId: 'q1', amount: 1000, deletedAt: null })],
+    });
+    const result = mergeState(local, remote);
+    expect(result.categories[0].questStatus).toBe('active');
+  });
+});
+
+describe('mergeState — concurrent quest redemption', () => {
+  it('keeps only one redemption transaction when both devices redeemed the same quest offline, and does not double-count the withdrawal', () => {
+    const local = state({
+      categories: [quest('q1', { questStatus: 'redeemed', questRedeemedDate: '2026-08-05' })],
+      transactions: [tx('tA', { type: 'expense', categoryId: 'q1', amount: 1000, isRedemption: true, date: '2026-08-05', createdAt: 5000 })],
+    });
+    const remote = state({
+      categories: [quest('q1', { questStatus: 'redeemed', questRedeemedDate: '2026-08-03' })],
+      transactions: [tx('tB', { type: 'expense', categoryId: 'q1', amount: 1000, isRedemption: true, date: '2026-08-03', createdAt: 3000 })],
+    });
+    const result = mergeState(local, remote);
+    const activeRedemptions = result.transactions.filter((t) => t.isRedemption && !t.deletedAt);
+    expect(activeRedemptions).toHaveLength(1);
+    expect(activeRedemptions[0].id).toBe('tB'); // earlier date wins
+    expect(cumulativePosition(result.transactions)).toBe(-1000); // not -2000
+    expect(result.categories[0].questRedeemedDate).toBe('2026-08-03');
+  });
+
+  it('still tombstones the losing redemption even when its createdAt is falsy (legacy/hand-edited import data)', () => {
+    const local = state({
+      categories: [quest('q1', { questStatus: 'redeemed', questRedeemedDate: '2026-08-05' })],
+      transactions: [tx('tA', { type: 'expense', categoryId: 'q1', amount: 1000, isRedemption: true, date: '2026-08-05', createdAt: undefined })],
+    });
+    const remote = state({
+      categories: [quest('q1', { questStatus: 'redeemed', questRedeemedDate: '2026-08-03' })],
+      transactions: [tx('tB', { type: 'expense', categoryId: 'q1', amount: 1000, isRedemption: true, date: '2026-08-03', createdAt: 3000 })],
+    });
+    const result = mergeState(local, remote);
+    const activeRedemptions = result.transactions.filter((t) => t.isRedemption && !t.deletedAt);
+    expect(activeRedemptions).toHaveLength(1);
+    expect(cumulativePosition(result.transactions)).toBe(-1000);
+  });
+
+  it('picks the same surviving redemption and questRedeemedDate regardless of which side is local vs remote', () => {
+    const local = state({
+      categories: [quest('q1', { questStatus: 'redeemed', questRedeemedDate: '2026-08-05' })],
+      transactions: [tx('tA', { type: 'expense', categoryId: 'q1', amount: 1000, isRedemption: true, date: '2026-08-05', createdAt: 5000 })],
+    });
+    const remote = state({
+      categories: [quest('q1', { questStatus: 'redeemed', questRedeemedDate: '2026-08-03' })],
+      transactions: [tx('tB', { type: 'expense', categoryId: 'q1', amount: 1000, isRedemption: true, date: '2026-08-03', createdAt: 3000 })],
+    });
+    const byId = (items) => [...items].sort((x, y) => (x.id < y.id ? -1 : 1));
+    const forward = mergeState(local, remote);
+    const reversed = mergeState(remote, local);
+    expect(byId(forward.transactions)).toEqual(byId(reversed.transactions));
+    expect(byId(forward.categories)).toEqual(byId(reversed.categories));
+  });
+});
+
+describe('mergeState — budgetAllocations vs the mechanical month-copy race (ensureMonthSeeded)', () => {
+  it('a genuine edit on one device is not reverted by the other device merely opening the new month afterward', () => {
+    // Both devices start synced through July with the same allocation for Groceries.
+    const julyRow = { id: 'jul1', categoryId: 'c1', month: '2026-07', percentage: 25, amount: 30000, updatedAt: 1000 };
+
+    // Device B, offline, deliberately edits August to 40%.
+    const deviceBAugust = saveAllocations(120000, [{ categoryId: 'c1', percentage: 40 }], '2026-08', 2000);
+
+    // Device A, offline, merely opens the Budget tab for August (no edit) — much later in wall
+    // clock time, but a mechanical copy-forward, not a real change.
+    const deviceAAugust = ensureMonthSeeded([julyRow], '2026-08', 9000);
+
+    const local = state({ budgetAllocations: deviceAAugust });
+    const remote = state({ budgetAllocations: [julyRow, ...deviceBAugust] });
+    const result = mergeState(local, remote);
+
+    const augustRows = result.budgetAllocations.filter((r) => r.month === '2026-08');
+    expect(augustRows).toHaveLength(1);
+    expect(augustRows[0].percentage).toBe(40);
+  });
+});
+
+describe('mergeState — income categories', () => {
+  it('unions income categories present on only one side', () => {
+    const local = state({ incomeCategories: [income('i1')] });
+    const remote = state({ incomeCategories: [income('i2')] });
+    expect(mergeState(local, remote).incomeCategories.map((c) => c.id).sort()).toEqual(['i1', 'i2']);
+  });
+
+  it('never duplicates an income category id present on both sides', () => {
+    const local = state({ incomeCategories: [income('i1')] });
+    const remote = state({ incomeCategories: [income('i1')] });
+    expect(mergeState(local, remote).incomeCategories).toHaveLength(1);
+  });
+});
+
+describe('mergeState — budgetAllocations', () => {
+  it('unions allocation rows for different (categoryId, month) keys', () => {
+    const local = state({ budgetAllocations: [alloc('a1', { categoryId: 'c1', month: '2026-08' })] });
+    const remote = state({ budgetAllocations: [alloc('a2', { categoryId: 'c2', month: '2026-08' })] });
+    expect(mergeState(local, remote).budgetAllocations).toHaveLength(2);
+  });
+
+  it('keeps only one row per (categoryId, month) when both sides independently replaced it — the more recently updated one wins', () => {
+    const local = state({ budgetAllocations: [alloc('a1', { categoryId: 'c1', month: '2026-08', percentage: 25, updatedAt: 1000 })] });
+    const remote = state({ budgetAllocations: [alloc('a2', { categoryId: 'c1', month: '2026-08', percentage: 40, updatedAt: 5000 })] });
+    const result = mergeState(local, remote);
+    const rows = result.budgetAllocations.filter((r) => r.categoryId === 'c1' && r.month === '2026-08');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].percentage).toBe(40);
+    expect(rows[0].id).toBe('a2');
+  });
+
+  it('a row with no updatedAt (pre-sync data) is treated as maximally stale and always loses', () => {
+    const local = state({ budgetAllocations: [{ id: 'a1', categoryId: 'c1', month: '2026-08', percentage: 25, amount: 30000 }] });
+    const remote = state({ budgetAllocations: [alloc('a2', { categoryId: 'c1', month: '2026-08', percentage: 40, updatedAt: 1 })] });
+    const result = mergeState(local, remote);
+    expect(result.budgetAllocations).toHaveLength(1);
+    expect(result.budgetAllocations[0].id).toBe('a2');
+  });
+
+  it('on an exact updatedAt tie, the lexicographically smaller id wins deterministically regardless of order', () => {
+    const local = state({ budgetAllocations: [alloc('aaa', { categoryId: 'c1', month: '2026-08', updatedAt: 3000 })] });
+    const remote = state({ budgetAllocations: [alloc('zzz', { categoryId: 'c1', month: '2026-08', updatedAt: 3000 })] });
+    expect(mergeState(local, remote).budgetAllocations[0].id).toBe('aaa');
+    expect(mergeState(remote, local).budgetAllocations[0].id).toBe('aaa');
+  });
+});
+
+describe('mergeState — determinism and idempotency', () => {
+  it('produces the same merged transactions/categories regardless of which side is passed as local vs remote', () => {
+    const a = state({
+      transactions: [tx('t1', { deletedAt: 4000 })],
+      categories: [cat('c1', { archived: true, archivedAt: 6000 })],
+    });
+    const b = state({
+      transactions: [tx('t1', { deletedAt: null })],
+      categories: [cat('c1', { archived: false, archivedAt: 2000 })],
+    });
+    const ab = mergeState(a, b);
+    const ba = mergeState(b, a);
+    expect(ab.transactions).toEqual(ba.transactions);
+    expect(ab.categories).toEqual(ba.categories);
+    expect(ab.budgetAllocations).toEqual(ba.budgetAllocations);
+  });
+
+  it('merging an already-merged result back in with the same remote produces the same result again (idempotent)', () => {
+    const local = state({
+      transactions: [tx('t1'), tx('t2', { deletedAt: 5000 })],
+      categories: [cat('c1', { archived: true, archivedAt: 3000 })],
+      incomeCategories: [income('i1')],
+      budgetAllocations: [alloc('a1', { updatedAt: 2000 })],
+    });
+    const remote = state({
+      transactions: [tx('t2', { deletedAt: null }), tx('t3')],
+      categories: [cat('c1', { archived: false, archivedAt: 1000 }), cat('c2')],
+      incomeCategories: [income('i2')],
+      budgetAllocations: [alloc('a2', { updatedAt: 6000 })],
+    });
+    const once = mergeState(local, remote);
+    const twice = mergeState(once, remote);
+    expect(twice).toEqual(once);
+  });
+});
+
+describe('syncPayload', () => {
+  it('extracts exactly the five synced fields, ignoring everything else in state', () => {
+    const full = state({
+      transactions: [tx('t1')],
+      categories: [cat('c1')],
+      incomeCategories: [income('i1')],
+      budgetAllocations: [alloc('a1')],
+      deviceId: 'device-1',
+      deviceName: 'My Phone',
+      pairedDevice: { id: 'device-2', name: 'Other Phone', pairedAt: 1, lastSyncedAt: null },
+      theme: 'dark',
+    });
+    expect(syncPayload({ ...full, payeeCategoryMap: { 'debit:shop': { type: 'expense', categoryId: 'c1', updatedAt: 1 } } })).toEqual({
+      transactions: [tx('t1')],
+      categories: [cat('c1')],
+      incomeCategories: [income('i1')],
+      budgetAllocations: [alloc('a1')],
+      payeeCategoryMap: { 'debit:shop': { type: 'expense', categoryId: 'c1', updatedAt: 1 } },
+    });
+  });
+});
+
+describe('applyIncomingSync', () => {
+  it('merges the remote payload into local state and bumps pairedDevice.lastSyncedAt to now, when senderId matches the paired device', () => {
+    const local = state({
+      transactions: [tx('t1')],
+      pairedDevice: { id: 'device-2', name: 'Other Phone', pairedAt: 1, lastSyncedAt: 1000 },
+    });
+    const remotePayload = syncPayload(state({ transactions: [tx('t2')] }));
+    const result = applyIncomingSync(local, remotePayload, 'device-2', 9999);
+    expect(result.transactions.map((t) => t.id).sort()).toEqual(['t1', 't2']);
+    expect(result.pairedDevice).toEqual({ id: 'device-2', name: 'Other Phone', pairedAt: 1, lastSyncedAt: 9999 });
+  });
+
+  it('is a hard no-op when pairedDevice is null — a stray in-flight message from a just-unpaired peer must not merge in and resurrect wiped data', () => {
+    const local = state({ transactions: [tx('t1')], pairedDevice: null });
+    const remotePayload = syncPayload(state({ transactions: [tx('t2')] }));
+    const result = applyIncomingSync(local, remotePayload, 'device-2', 9999);
+    expect(result.pairedDevice).toBeNull();
+    expect(result.transactions).toEqual([tx('t1')]); // t2 from the stray message must NOT appear
+    expect(result).toBe(local); // literally unchanged, not just content-equal
+  });
+
+  it('is a hard no-op when senderId does not match the currently paired device — a stray message from a device just replaced by re-pairing must not merge in', () => {
+    // Was paired+syncing with device-2 (device B); user has since re-paired to device-3 (device
+    // C), but a genuine in-flight message from B — still a real, correctly-addressed message,
+    // just stale relative to the *current* pairing — arrives after that.
+    const local = state({
+      transactions: [tx('t1')],
+      pairedDevice: { id: 'device-3', name: 'Device C', pairedAt: 5, lastSyncedAt: null },
+    });
+    const staleMessageFromB = syncPayload(state({ transactions: [tx('t2')] }));
+    const result = applyIncomingSync(local, staleMessageFromB, 'device-2', 9999);
+    expect(result).toBe(local);
+    expect(result.transactions).toEqual([tx('t1')]);
+    expect(result.pairedDevice.lastSyncedAt).toBeNull(); // must not look synced with C from B's data
+  });
+
+  it('does not resurrect data wiped by a reset even if the old peer\'s in-flight message arrives right after unpairing', () => {
+    // Mirrors Settings.jsx's confirmReset: wipe local data AND unpair in the same patch.
+    const justReset = state({ transactions: [], categories: [], pairedDevice: null });
+    const staleMessageFromOldPeer = syncPayload(state({
+      transactions: [tx('t1'), tx('t2')],
+      categories: [cat('c1')],
+    }));
+    const result = applyIncomingSync(justReset, staleMessageFromOldPeer, 'device-2', 9999);
+    expect(result.transactions).toEqual([]);
+    expect(result.categories).toEqual([]);
+  });
+
+  it('a merge with no new data from the peer still bumps lastSyncedAt but never duplicates or changes records (safe to trigger repeatedly)', () => {
+    const local = state({
+      transactions: [tx('t1')],
+      pairedDevice: { id: 'device-2', name: 'Other Phone', pairedAt: 1, lastSyncedAt: 1000 },
+    });
+    const remotePayload = syncPayload(state({ transactions: [tx('t1')] }));
+    const result = applyIncomingSync(local, remotePayload, 'device-2', 5000);
+    expect(result.transactions).toEqual([tx('t1')]);
+    expect(result.pairedDevice.lastSyncedAt).toBe(5000);
+  });
+});
+
+describe('pendingChangeCount', () => {
+  it('is 0 when unpaired — there is no peer to be behind on', () => {
+    const s = state({ transactions: [tx('t1', { createdAt: 5000 })], pairedDevice: null });
+    expect(pendingChangeCount(s)).toBe(0);
+  });
+
+  it('is 0 when never synced but nothing has a real timestamp to compare (all-null createdAt, e.g. legacy data)', () => {
+    const s = state({
+      categories: [cat('c1', { createdAt: null })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: null },
+    });
+    expect(pendingChangeCount(s)).toBe(0);
+  });
+
+  it('counts a transaction created after lastSyncedAt', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 1000 }), tx('t2', { createdAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(1); // only t2
+  });
+
+  it('counts a transaction deleted after lastSyncedAt, even if it was created before', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 1000, deletedAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(1);
+  });
+
+  it('counts a category created or archived after lastSyncedAt', () => {
+    const s = state({
+      categories: [
+        cat('c1', { createdAt: 1000 }), // before — not pending
+        cat('c2', { createdAt: 9000 }), // created after — pending
+        cat('c3', { createdAt: 1000, archived: true, archivedAt: 9000 }), // archived after — pending
+      ],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(2);
+  });
+
+  it('counts an income category created after lastSyncedAt', () => {
+    const s = state({
+      incomeCategories: [income('i1', { createdAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(1);
+  });
+
+  it('counts a budget allocation row created after lastSyncedAt', () => {
+    const s = state({
+      budgetAllocations: [alloc('a1', { createdAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(1);
+  });
+
+  it('counts a budget allocation row from a mechanical month-copy (ensureMonthSeeded) even though its updatedAt is deliberately backdated', () => {
+    // ensureMonthSeeded forwards the source row's updatedAt (for merge priority — see
+    // allocations.js) but always mints a fresh id + createdAt, since the row itself is new.
+    const s = state({
+      budgetAllocations: [alloc('a1', { updatedAt: 1000, createdAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 5000 },
+    });
+    expect(pendingChangeCount(s)).toBe(1);
+  });
+
+  it('treats a null lastSyncedAt (never synced) as everything with a real timestamp being pending', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 1000 })],
+      categories: [cat('c1', { createdAt: 1000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: null },
+    });
+    expect(pendingChangeCount(s)).toBe(2);
+  });
+
+  it('clears to 0 immediately once lastSyncedAt catches up to every record (a completed sync)', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 9000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 1, lastSyncedAt: 9000 },
+    });
+    expect(pendingChangeCount(s)).toBe(0); // not strictly after lastSyncedAt, so not pending
+  });
+});
+
+describe('formatSyncedLabel', () => {
+  it('shows "Not yet synced" for a null lastSyncedAt', () => {
+    expect(formatSyncedLabel(null)).toBe('Not yet synced');
+  });
+
+  it('shows "Synced just now" for under a minute', () => {
+    expect(formatSyncedLabel(9_000, 10_000)).toBe('Synced just now');
+  });
+
+  it('shows minutes for under an hour', () => {
+    expect(formatSyncedLabel(0, 5 * 60_000)).toBe('Synced 5m ago');
+  });
+
+  it('shows hours for under a day', () => {
+    expect(formatSyncedLabel(0, 3 * 60 * 60_000)).toBe('Synced 3h ago');
+  });
+
+  it('shows days for a day or more', () => {
+    expect(formatSyncedLabel(0, 2 * 24 * 60 * 60_000)).toBe('Synced 2d ago');
+  });
+});
+
+describe('shouldNudgeStaleSync', () => {
+  it('is false when unpaired', () => {
+    const s = state({ transactions: [tx('t1', { createdAt: 9000 })], pairedDevice: null });
+    expect(shouldNudgeStaleSync(s, 9000 + STALE_SYNC_THRESHOLD_MS + 1)).toBe(false);
+  });
+
+  it('is false when there are no pending changes, no matter how stale', () => {
+    const s = state({ pairedDevice: { id: 'd2', name: 'Other', pairedAt: 0, lastSyncedAt: 0 } });
+    expect(shouldNudgeStaleSync(s, STALE_SYNC_THRESHOLD_MS * 10)).toBe(false);
+  });
+
+  it('is false when pending changes exist but the threshold has not elapsed since lastSyncedAt', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 5000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 0, lastSyncedAt: 1000 },
+    });
+    expect(shouldNudgeStaleSync(s, 1000 + STALE_SYNC_THRESHOLD_MS - 1)).toBe(false);
+  });
+
+  it('is true once pending changes exist and the threshold has elapsed since lastSyncedAt', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 5000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 0, lastSyncedAt: 1000 },
+    });
+    expect(shouldNudgeStaleSync(s, 1000 + STALE_SYNC_THRESHOLD_MS + 1)).toBe(true);
+  });
+
+  it('uses pairedAt as the reference point when never synced', () => {
+    const s = state({
+      transactions: [tx('t1', { createdAt: 5000 })],
+      pairedDevice: { id: 'd2', name: 'Other', pairedAt: 2000, lastSyncedAt: null },
+    });
+    expect(shouldNudgeStaleSync(s, 2000 + STALE_SYNC_THRESHOLD_MS - 1)).toBe(false);
+    expect(shouldNudgeStaleSync(s, 2000 + STALE_SYNC_THRESHOLD_MS + 1)).toBe(true);
+  });
+});
+
+describe('mergeState — statement-import duplicates (#39)', () => {
+  const imp = (id, createdAt, over = {}) => tx(id, { externalId: 'phonepe:T1', createdAt, ...over });
+
+  it('keeps the earliest-created copy of a statement row imported on both devices and tombstones the rest', () => {
+    const merged = mergeState(state({ transactions: [imp('a', 200)] }), state({ transactions: [imp('b', 100)] }));
+    const byId = Object.fromEntries(merged.transactions.map((t) => [t.id, t]));
+    expect(byId.b.deletedAt).toBeNull();
+    expect(byId.a.deletedAt).toBe(200);
+    expect(cumulativePosition(merged.transactions)).toBe(-100);
+  });
+
+  it('is order-independent and idempotent', () => {
+    const left = state({ transactions: [imp('a', 100)] });
+    const right = state({ transactions: [imp('b', 100)] }); // createdAt tie → smaller id wins
+    const ab = mergeState(left, right);
+    const ba = mergeState(right, left);
+    const sortById = (ts) => [...ts].sort((x, y) => (x.id < y.id ? -1 : 1));
+    expect(sortById(ab.transactions)).toEqual(sortById(ba.transactions));
+    expect(ab.transactions.find((t) => t.id === 'a').deletedAt).toBeNull();
+    expect(sortById(mergeState(ab, ab).transactions)).toEqual(sortById(ab.transactions));
+  });
+
+  it('ignores already-deleted copies (an undone import on one device keeps the other device\'s live copy)', () => {
+    const merged = mergeState(state({ transactions: [imp('a', 100, { deletedAt: 500 })] }), state({ transactions: [imp('b', 200)] }));
+    expect(merged.transactions.find((t) => t.id === 'b').deletedAt).toBeNull();
+  });
+
+  it('leaves transactions without an externalId alone', () => {
+    const merged = mergeState(state({ transactions: [tx('m1')] }), state({ transactions: [tx('m2')] }));
+    expect(merged.transactions.every((t) => t.deletedAt === null)).toBe(true);
+  });
+
+  it('recomputes a quest whose completion came only from a duplicated contribution', () => {
+    const q = quest('q1', { questTargetAmount: 150, questStatus: 'completed' });
+    const contribution = (id, createdAt) => tx(id, { type: 'quest_contribution', categoryId: 'q1', amount: 100, externalId: 'phonepe:Q', createdAt });
+    const merged = mergeState(
+      state({ categories: [q], transactions: [contribution('a', 1)] }),
+      state({ categories: [q], transactions: [contribution('b', 2)] }),
+    );
+    expect(merged.categories[0].questStatus).toBe('active');
+  });
+});
+
+describe('mergeState — payee category memory (#39)', () => {
+  const entry = (categoryId, updatedAt) => ({ type: 'expense', categoryId, updatedAt });
+
+  it('unions keys, last write wins per key', () => {
+    const merged = mergeState(
+      state({ payeeCategoryMap: { 'debit:a': entry('x', 1), 'debit:b': entry('y', 5) } }),
+      state({ payeeCategoryMap: { 'debit:a': entry('z', 2), 'debit:c': entry('w', 1) } }),
+    );
+    expect(merged.payeeCategoryMap).toEqual({ 'debit:a': entry('z', 2), 'debit:b': entry('y', 5), 'debit:c': entry('w', 1) });
+  });
+
+  it('breaks updatedAt ties deterministically', () => {
+    const l = state({ payeeCategoryMap: { k: entry('x', 1) } });
+    const r = state({ payeeCategoryMap: { k: entry('y', 1) } });
+    expect(mergeState(l, r).payeeCategoryMap).toEqual(mergeState(r, l).payeeCategoryMap);
+  });
+
+  it('keeps the local map when the peer runs an older version without one', () => {
+    const local = state({ payeeCategoryMap: { k: entry('x', 1) } });
+    const { payeeCategoryMap: _omit, ...olderPeer } = { ...state(), payeeCategoryMap: undefined };
+    expect(mergeState(local, olderPeer).payeeCategoryMap).toEqual({ k: entry('x', 1) });
+  });
+});
+
+describe('syncSizeStatus (#39)', () => {
+  it('uses the Nearby BYTES payload cap', () => {
+    expect(MAX_SYNC_PAYLOAD_BYTES).toBe(1047552);
+  });
+  it('is ok below 70%, warning from 70%, too_large over the cap', () => {
+    expect(syncSizeStatus(1000)).toBe('ok');
+    expect(syncSizeStatus(Math.ceil(MAX_SYNC_PAYLOAD_BYTES * 0.7))).toBe('warning');
+    expect(syncSizeStatus(MAX_SYNC_PAYLOAD_BYTES)).toBe('warning');
+    expect(syncSizeStatus(MAX_SYNC_PAYLOAD_BYTES + 1)).toBe('too_large');
+  });
+});
+
+describe('applyIncomingSync — outgoing send refused (#39)', () => {
+  it('still merges the peer\'s data but leaves lastSyncedAt alone when this device could not send', () => {
+    const local = state({ transactions: [tx('t1')], pairedDevice: { id: 'device-2', name: 'Other', pairedAt: 1, lastSyncedAt: 1000 } });
+    const result = applyIncomingSync(local, syncPayload(state({ transactions: [tx('t2')] })), 'device-2', 9999, { outgoingBlocked: true });
+    expect(result.transactions.map((t) => t.id).sort()).toEqual(['t1', 't2']);
+    expect(result.pairedDevice.lastSyncedAt).toBe(1000);
+  });
+});
+
+describe('payee memory undo survives sync (#39)', () => {
+  it('a newer undo entry beats the peer\'s older learned entry', () => {
+    const learned = { type: 'expense', categoryId: 'wrong', updatedAt: 500 };
+    const undone = { type: null, categoryId: null, updatedAt: 600 };
+    expect(mergeState(state({ payeeCategoryMap: { k: undone } }), state({ payeeCategoryMap: { k: learned } })).payeeCategoryMap.k).toEqual(undone);
+  });
+});

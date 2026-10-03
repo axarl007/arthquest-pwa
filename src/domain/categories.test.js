@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, GROUP_LABELS, GROUPS_ORDER, seedDefaultsIfNeeded } from './categories.js';
+import { DEFAULT_EXPENSE_CATEGORIES, DEFAULT_INCOME_CATEGORIES, GROUP_LABELS, GROUPS_ORDER, seedDefaultsIfNeeded, toggleArchived } from './categories.js';
 import { catColor } from '../theme/tokens.js';
 
 describe('DEFAULT_EXPENSE_CATEGORIES', () => {
@@ -51,6 +51,7 @@ describe('seedDefaultsIfNeeded', () => {
     expect(patch.categories).toHaveLength(17);
     expect(patch.categories.every((c) => c.type === 'budget')).toBe(true);
     expect(patch.categories.every((c) => c.archived === false)).toBe(true);
+    expect(patch.categories.every((c) => c.archivedAt === null)).toBe(true);
     expect(patch.incomeCategories).toHaveLength(3);
     // ids are unique
     const ids = patch.categories.map((c) => c.id);
@@ -85,6 +86,12 @@ describe('seedDefaultsIfNeeded', () => {
     expect(patch.categories.every((c) => typeof c.color === 'string' && c.color.startsWith('oklch('))).toBe(true);
   });
 
+  it('stamps every seeded category and income category with createdAt (the sync pending-change indicator relies on this)', () => {
+    const patch = seedDefaultsIfNeeded({ categories: [], incomeCategories: [] }, 12345);
+    expect(patch.categories.every((c) => c.createdAt === 12345)).toBe(true);
+    expect(patch.incomeCategories.every((c) => c.createdAt === 12345)).toBe(true);
+  });
+
   it('continues the color index from existing categories, so re-seeding onto a non-empty state never repeats a color already in use', () => {
     const existing = {
       categories: Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, name: `Cat${i}`, icon: 'category', type: 'budget', group: 'needs', archived: false, color: catColor(i) })),
@@ -94,5 +101,27 @@ describe('seedDefaultsIfNeeded', () => {
     // one does — instead verify the income-category branch (which does still run) picks up after 5.
     const patch = seedDefaultsIfNeeded(existing);
     expect(patch.incomeCategories[0].color).toBe(catColor(5));
+  });
+});
+
+describe('toggleArchived', () => {
+  it('flips archived and stamps archivedAt with the given timestamp, leaving other categories untouched', () => {
+    const categories = [{ id: 'c1', archived: false, archivedAt: null }, { id: 'c2', archived: false, archivedAt: null }];
+    const result = toggleArchived(categories, 'c1', 12345);
+    expect(result.find((c) => c.id === 'c1')).toEqual({ id: 'c1', archived: true, archivedAt: 12345 });
+    expect(result.find((c) => c.id === 'c2')).toEqual({ id: 'c2', archived: false, archivedAt: null });
+  });
+
+  it('toggling twice unarchives again and updates the timestamp', () => {
+    const categories = [{ id: 'c1', archived: false, archivedAt: null }];
+    const once = toggleArchived(categories, 'c1', 100);
+    const twice = toggleArchived(once, 'c1', 200);
+    expect(twice[0]).toEqual({ id: 'c1', archived: false, archivedAt: 200 });
+  });
+
+  it('defaults the timestamp to now when not given one', () => {
+    const before = Date.now();
+    const result = toggleArchived([{ id: 'c1', archived: false, archivedAt: null }], 'c1');
+    expect(result[0].archivedAt).toBeGreaterThanOrEqual(before);
   });
 });

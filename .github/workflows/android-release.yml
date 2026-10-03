@@ -1,0 +1,104 @@
+name: Android release
+
+# Publishes a signed, installable-as-an-update APK to GitHub Releases on every push to main —
+# replaces the old flow of manually grabbing a debug APK from a CI workflow-run's artifacts
+# (android.yml still does that, for quick PR-time build verification only, not distribution).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    # workflow_dispatch has no ref restriction of its own — the Actions UI lets it be run against
+    # any branch, not just main. Without this guard, a manual dispatch from an in-progress/
+    # unreviewed branch would still publish a signed APK with a strictly-increasing versionCode
+    # to GitHub Releases, which any device with this app installed would accept as a legitimate
+    # over-the-air update — i.e. unreviewed code shipped as a production release, undermining
+    # CLAUDE.md's PR-review-before-main rule that the push trigger above otherwise respects.
+    if: github.ref == 'refs/heads/main'
+    env:
+      # playwright is a devDependency used only for local visual QA scripts
+      # (scripts/screenshot*.mjs) — CI never launches a browser, so skip the
+      # otherwise-automatic Chromium download on install.
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Android build
+        uses: ./.github/actions/setup-android-build
+
+      # This repo is public, so the signing keystore itself is never committed — it's decoded
+      # here from the ANDROID_KEYSTORE_BASE64 repo secret into a runner-local temp file that
+      # doesn't outlive the job. See CLAUDE.md's "Android release APK signing" note for the
+      # exact secret names this workflow expects (ANDROID_KEYSTORE_BASE64,
+      # ANDROID_KEYSTORE_STORE_PASSWORD, ANDROID_KEYSTORE_KEY_ALIAS,
+      # ANDROID_KEYSTORE_KEY_PASSWORD) and the one-time GitHub repo-settings setup they require.
+      - name: Decode release keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > /tmp/release.keystore
+          # An empty/missing ANDROID_KEYSTORE_BASE64 secret decodes to a 0-byte file, which
+          # `releaseStoreFile.exists()` in build.gradle treats as present — so hasReleaseSigning
+          # would evaluate true (as long as the three password secrets are set) and Gradle would
+          # fail deep inside native keystore-loading with an opaque error instead of the clear
+          # diagnostic the later "Verify a signed release APK was produced" step is meant to give.
+          # Catch it here instead, right where the actual cause is known.
+          if [ ! -s /tmp/release.keystore ]; then
+            echo "::error::Decoded keystore is empty — ANDROID_KEYSTORE_BASE64 repo secret is missing or blank. See CLAUDE.md's 'Android release APK signing' note." >&2
+            exit 1
+          fi
+
+      - name: Build signed release APK
+        working-directory: android
+        # ANDROID_VERSION_CODE must strictly increase for Android to install this as an update
+        # rather than refusing it over the currently-installed build — github.run_number is a
+        # simple, monotonically-increasing, never-reused source for that (see app/build.gradle).
+        # Signing key must stay the SAME across every release build forever — a different key
+        # (or the CI-runner's own ephemeral debug keystore, the original bug) makes Android
+        # refuse to install a new build as an update over the existing app.
+        run: ./gradlew assembleRelease --no-daemon
+        env:
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+          ANDROID_KEYSTORE_PATH: /tmp/release.keystore
+          ANDROID_KEYSTORE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_STORE_PASSWORD }}
+          ANDROID_KEYSTORE_KEY_ALIAS: ${{ secrets.ANDROID_KEYSTORE_KEY_ALIAS }}
+          ANDROID_KEYSTORE_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_KEY_PASSWORD }}
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f /tmp/release.keystore
+
+      # Gradle happily produces app-release-unsigned.apk (a DIFFERENT filename) instead of
+      # app-release.apk when the signingConfig wasn't applied (e.g. a missing/misnamed secret) —
+      # assembleRelease still exits 0 either way. Left unchecked, the next step's file glob would
+      # just match nothing and softprops/action-gh-release defaults to not failing on that,
+      # silently publishing an empty, assetless "release" whose body still claims to be signed.
+      # Fail the job loudly here instead, at the one point that actually knows which file to
+      # expect.
+      - name: Verify a signed release APK was produced
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then
+            echo "::error::$apk not found — the release build produced no signed APK. This almost always means one of the ANDROID_KEYSTORE_* repo secrets is missing; see CLAUDE.md's 'Android release APK signing' note." >&2
+            ls -la android/app/build/outputs/apk/release/ 2>&1 || true
+            exit 1
+          fi
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ github.run_number }}
+          name: ArthQuest Android v1.0.${{ github.run_number }}
+          files: android/app/build/outputs/apk/release/app-release.apk
+          fail_on_unmatched_files: true
+          body: |
+            Automated Android build from commit ${{ github.sha }}.
+
+            Signed with the app's stable release keystore and a version code that always
+            increases — installing this over a previous release build from this repo updates it
+            in place, no uninstall needed.

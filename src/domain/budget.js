@@ -74,10 +74,15 @@ export function matchesBudgetFilter(row, filter) {
   }
 }
 
-/** Priority order (see budgetRow's sortKey) by default; reversed when `direction` is 'asc'. */
+/**
+ * Priority order (see budgetRow's sortKey) by default; ascending when `direction` is 'asc'.
+ * Sorts directly in the requested direction rather than sorting ascending then `.reverse()`ing —
+ * `.sort()` is stable, but reversing an already-sorted array also reverses the relative order of
+ * tied (equal-sortKey) rows, silently flipping category-declaration order for every 0%-used row.
+ */
 export function sortBudgetRows(rows, direction = 'desc') {
-  const sorted = [...rows].sort((a, b) => a.sortKey - b.sortKey);
-  return direction === 'desc' ? sorted.reverse() : sorted;
+  const cmp = direction === 'desc' ? (a, b) => b.sortKey - a.sortKey : (a, b) => a.sortKey - b.sortKey;
+  return [...rows].sort(cmp);
 }
 
 /** month < currentMonth — matches BudgetUiState.isPastMonth, the source of the locked-month banner. */

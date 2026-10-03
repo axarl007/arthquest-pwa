@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ticket #32. A static single-tap-target widget — no periodic content to refresh
+     (updatePeriodMillis="0"), no configuration screen, resizable within a small range since it's
+     just an icon+label, not a data display. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_add_transaction"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen" />

@@ -10,6 +10,7 @@ import {
   filterByType,
   groupByDateLabel,
   resolveTransactionSubject,
+  deleteTransaction,
 } from './transactions.js';
 
 const tx = (over) => ({
@@ -26,6 +27,11 @@ describe('monthKeyOfDate', () => {
 describe('transactionsInMonth', () => {
   it('filters to only the given month', () => {
     const list = [tx({ id: '1', date: '2026-08-01' }), tx({ id: '2', date: '2026-07-31' })];
+    expect(transactionsInMonth(list, '2026-08').map((t) => t.id)).toEqual(['1']);
+  });
+
+  it('excludes tombstoned (deletedAt set) transactions', () => {
+    const list = [tx({ id: '1', date: '2026-08-01' }), tx({ id: '2', date: '2026-08-02', deletedAt: 999 })];
     expect(transactionsInMonth(list, '2026-08').map((t) => t.id)).toEqual(['1']);
   });
 });
@@ -61,6 +67,14 @@ describe('cumulativePosition', () => {
     ];
     expect(cumulativePosition(list)).toBe(80000);
   });
+
+  it('excludes tombstoned (deletedAt set) transactions', () => {
+    const list = [
+      tx({ id: '1', type: 'income', amount: 100000, date: '2026-08-01' }),
+      tx({ id: '2', type: 'expense', amount: 40000, date: '2026-08-02', deletedAt: 111 }),
+    ];
+    expect(cumulativePosition(list)).toBe(100000);
+  });
 });
 
 describe('spentForCategory', () => {
@@ -74,6 +88,14 @@ describe('spentForCategory', () => {
     ];
     expect(spentForCategory(list, 'c1', '2026-08')).toBe(6200);
   });
+
+  it('excludes tombstoned (deletedAt set) transactions', () => {
+    const list = [
+      tx({ id: '1', categoryId: 'c1', amount: 4200, date: '2026-08-05' }),
+      tx({ id: '2', categoryId: 'c1', amount: 2000, date: '2026-08-18', deletedAt: 222 }),
+    ];
+    expect(spentForCategory(list, 'c1', '2026-08')).toBe(4200);
+  });
 });
 
 describe('contributedForQuest', () => {
@@ -85,6 +107,30 @@ describe('contributedForQuest', () => {
       tx({ id: '4', type: 'expense', categoryId: 'q1', amount: 1, date: '2026-08-01' }),
     ];
     expect(contributedForQuest(list, 'q1')).toBe(16000);
+  });
+
+  it('excludes tombstoned (deletedAt set) contributions', () => {
+    const list = [
+      tx({ id: '1', type: 'quest_contribution', categoryId: 'q1', amount: 8000, date: '2026-05-10' }),
+      tx({ id: '2', type: 'quest_contribution', categoryId: 'q1', amount: 8000, date: '2026-07-14', deletedAt: 333 }),
+    ];
+    expect(contributedForQuest(list, 'q1')).toBe(8000);
+  });
+});
+
+describe('deleteTransaction', () => {
+  it('tombstones the matching transaction by setting deletedAt, without removing it from the array', () => {
+    const list = [tx({ id: '1' }), tx({ id: '2' })];
+    const result = deleteTransaction(list, '1', 555);
+    expect(result).toHaveLength(2);
+    expect(result.find((t) => t.id === '1').deletedAt).toBe(555);
+    expect(result.find((t) => t.id === '2').deletedAt).toBeUndefined();
+  });
+
+  it('defaults the tombstone timestamp to now when not given one', () => {
+    const before = Date.now();
+    const result = deleteTransaction([tx({ id: '1' })], '1');
+    expect(result[0].deletedAt).toBeGreaterThanOrEqual(before);
   });
 });
 

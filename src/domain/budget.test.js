@@ -141,6 +141,19 @@ describe('sortBudgetRows', () => {
     const rows = [{ categoryId: 'a', sortKey: 50 }, { categoryId: 'd', sortKey: 90 }];
     expect(sortBudgetRows(rows, 'asc').map((r) => r.categoryId)).toEqual(['a', 'd']);
   });
+
+  it('keeps tied (equal sortKey) rows in their original relative order for both directions — not reversed just because direction is desc', () => {
+    // A naive `sort-ascending-then-reverse()` implementation reverses tied rows' relative order
+    // too, not just the overall ranking — this is the exact bug a mockup-vs-live comparison
+    // caught (category declaration order flipped for every 0%-used row).
+    const rows = [
+      { categoryId: 'a', sortKey: 0 },
+      { categoryId: 'b', sortKey: 0 },
+      { categoryId: 'c', sortKey: 0 },
+    ];
+    expect(sortBudgetRows(rows, 'desc').map((r) => r.categoryId)).toEqual(['a', 'b', 'c']);
+    expect(sortBudgetRows(rows, 'asc').map((r) => r.categoryId)).toEqual(['a', 'b', 'c']);
+  });
 });
 
 describe('isLockedMonth', () => {

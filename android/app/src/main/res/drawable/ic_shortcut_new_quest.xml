@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "New quest" launcher-shortcut icon (ticket #34), tinted with the same accent hex as
+     ic_widget_add.xml (see widget_background.xml's comment on where it comes from). Standard
+     Material "flag" glyph path. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#4DACF6"
+        android:pathData="M14.4,6L14,4L5,4l0,17l2,0l0,-7l6.6,0l0.4,2l7,0L21,6L14.4,6z" />
+</vector>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Add category" launcher-shortcut icon (ticket #34), tinted with the same accent hex as
+     ic_widget_add.xml (see widget_background.xml's comment on where it comes from). Standard
+     Material "folder" glyph path — recognizable at shortcut-icon size, no plus overlay needed
+     since the shortcut's own label already says "Add category". -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#4DACF6"
+        android:pathData="M10,4L4,4C2.9,4 2,4.9 2,6l0,12c0,1.1 0.9,2 2,2l16,0c1.1,0 2,-0.9 2,-2L22,8c0,-1.1 -0.9,-2 -2,-2l-8,0L10,4z" />
+</vector>

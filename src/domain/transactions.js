@@ -6,8 +6,16 @@ export function monthKeyOfDate(iso) {
   return iso.slice(0, 7);
 }
 
+/** Excludes tombstoned transactions (see `deleteTransaction`) — the shared filter every read-side
+ * selector below applies, so a deleted transaction never resurfaces in a total, list, or export.
+ * Exported too, for the rare screen (QuestDetail's contribution history) that reads the raw
+ * transactions array directly instead of going through one of those selectors. */
+export function notDeleted(transactions) {
+  return transactions.filter((t) => !t.deletedAt);
+}
+
 export function transactionsInMonth(transactions, monthKey) {
-  return transactions.filter((t) => monthKeyOfDate(t.date) === monthKey);
+  return notDeleted(transactions).filter((t) => monthKeyOfDate(t.date) === monthKey);
 }
 
 /**
@@ -32,7 +40,8 @@ export function monthlyTotals(transactions, monthKey) {
  * any special-casing — the same "only an Expense leaves the system" rule Android's comment states.
  */
 export function cumulativePosition(transactions) {
-  const sumOf = (type) => transactions.filter((t) => t.type === type).reduce((sum, t) => sum + t.amount, 0);
+  const active = notDeleted(transactions);
+  const sumOf = (type) => active.filter((t) => t.type === type).reduce((sum, t) => sum + t.amount, 0);
   return sumOf('income') - sumOf('expense');
 }
 
@@ -53,9 +62,18 @@ export function spentForCategory(transactions, categoryId, monthKey) {
  * a single-field check everywhere, instead of two fields that must be kept in sync.
  */
 export function contributedForQuest(transactions, questId) {
-  return transactions
+  return notDeleted(transactions)
     .filter((t) => t.type === 'quest_contribution' && t.categoryId === questId)
     .reduce((sum, t) => sum + t.amount, 0);
+}
+
+/**
+ * Tombstones (never removes) the matching transaction — a hard delete would let a future
+ * multi-device merge resurrect it from a peer's older, pre-delete copy of the array. Every other
+ * transaction is returned untouched (same reference).
+ */
+export function deleteTransaction(transactions, txId, now = Date.now()) {
+  return transactions.map((t) => (t.id === txId ? { ...t, deletedAt: now } : t));
 }
 
 /** Sorts by date, tie-broken by `createdAt` (so same-day transactions keep the order they were logged in). */
