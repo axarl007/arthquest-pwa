@@ -56,6 +56,8 @@
                 <data android:mimeType="application/csv" />
                 <data android:mimeType="application/vnd.ms-excel" />
                 <data android:mimeType="application/octet-stream" />
+                <!-- Google Pay's statement is a PDF (ticket #45). -->
+                <data android:mimeType="application/pdf" />
             </intent-filter>
 
             <!-- Static app shortcuts (ticket #34) shown on long-pressing the launcher icon. -->

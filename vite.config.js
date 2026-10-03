@@ -32,7 +32,8 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,woff2,woff,png,svg,ico}'],
+        // mjs: pdf.js's worker (#45), so PDF statement import works offline.
+        globPatterns: ['**/*.{js,mjs,css,html,woff2,woff,png,svg,ico}'],
         // The Material Symbols icon font ships as one ~4MB woff2 (the full
         // glyph set) — raise the default 2MB precache cap so it's still
         // cached for full offline use rather than silently excluded.

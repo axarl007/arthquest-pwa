@@ -111,25 +111,29 @@ describe('phonepe importer — spreadsheet-resaved export', () => {
 });
 
 describe('parseStatement', () => {
+  it('routes a PDF source to PDF importers only', () => {
+    expect(() => parseStatement({ kind: 'pdf', lines: [{ page: 1, cells: ['Some other PDF'] }] })).toThrow('Unrecognized file');
+  });
+
   it('auto-detects the format', () => {
-    const result = parseStatement(SAMPLE);
+    const result = parseStatement({ kind: 'text', text: SAMPLE });
     expect(result.format.id).toBe('phonepe');
     expect(result.rows).toHaveLength(3);
   });
 
   it('throws an unrecognized error naming the supported formats', () => {
-    expect(() => parseStatement('hello,world')).toThrow(StatementImportError);
+    expect(() => parseStatement({ kind: 'text', text: 'hello,world' })).toThrow(StatementImportError);
     try {
-      parseStatement('hello,world');
+      parseStatement({ kind: 'text', text: 'hello,world' });
     } catch (e) {
       expect(e.code).toBe('unrecognized');
-      expect(e.message).toBe('Unrecognized file — supported: PhonePe');
+      expect(e.message).toBe('Unrecognized file — supported: PhonePe, Google Pay');
     }
   });
 
   it('throws an empty error for a recognized statement with no readable rows', () => {
     try {
-      parseStatement(statement());
+      parseStatement({ kind: 'text', text: statement() });
       expect.unreachable();
     } catch (e) {
       expect(e.code).toBe('empty');
