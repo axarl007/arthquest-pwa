@@ -32,6 +32,9 @@ export function freshState() {
     // starting blank there is correct; only in-place re-entry should see the prior value.
     lastIncome: null,
     transactions: [],
+    // Statement-import payee → category memory (ticket #37, see domain/payeeMemory.js) — no
+    // Android equivalent.
+    payeeCategoryMap: {},
     // Every reminder toggle defaults on, matching AppPreferences' own `?: true` fallback for all
     // four (backupReminderEnabled included — a prior default of false here was a ticket #1
     // oversight, not a deliberate divergence like theme/iconStyle's).

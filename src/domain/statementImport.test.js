@@ -4,7 +4,6 @@ import {
   defaultTypeForDirection,
   prepareReview,
   groupRowsByPayee,
-  initialAssignments,
   unassignedRowIds,
   buildImportTransactions,
   applyImportedTransactions,
@@ -76,15 +75,7 @@ describe('groupRowsByPayee', () => {
   });
 });
 
-describe('initialAssignments / unassignedRowIds', () => {
-  it('defaults each row to its direction type with no category', () => {
-    const rows = [row({ externalId: 'a' }), row({ externalId: 'b', direction: 'credit' })];
-    expect(initialAssignments(rows)).toEqual({
-      a: { type: 'expense', categoryId: null, skip: false },
-      b: { type: 'income', categoryId: null, skip: false },
-    });
-  });
-
+describe('unassignedRowIds', () => {
   it('lists included rows without a currently-valid category, in row order', () => {
     const rows = [row({ externalId: 'a' }), row({ externalId: 'b' }), row({ externalId: 'c' }), row({ externalId: 'd' }), row({ externalId: 'e' })];
     const assignments = {

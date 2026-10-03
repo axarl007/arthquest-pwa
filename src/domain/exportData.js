@@ -72,6 +72,9 @@ export function buildBackupJson(state) {
     // concept in its schema at all.
     transactions: notDeleted(state.transactions).map(transactionToExport),
     budgetAllocations: state.budgetAllocations.map((a) => ({ ...a })),
+    // Statement-import payee memory (ticket #37) — PWA-only, like `settings`; without it a phone
+    // switch would forget every learned payee.
+    payeeCategoryMap: { ...(state.payeeCategoryMap ?? {}) },
     settings: {
       theme: state.theme, iconStyle: state.iconStyle, onboarded: state.onboarded,
       settingsToggles: { ...state.settingsToggles }, lastBackupReminderDate: state.lastBackupReminderDate ?? null,
@@ -106,6 +109,10 @@ export function parseBackupJson(json) {
   for (const c of [...patch.categories, ...patch.incomeCategories]) {
     if (!c.color) c.color = catColor(colorIndex);
     colorIndex++;
+  }
+  // Absent from Android-produced or pre-#37 backups — leave the current map alone then.
+  if (parsed.payeeCategoryMap && typeof parsed.payeeCategoryMap === 'object') {
+    patch.payeeCategoryMap = { ...parsed.payeeCategoryMap };
   }
   if (parsed.settings) {
     if (parsed.settings.theme) patch.theme = parsed.settings.theme;

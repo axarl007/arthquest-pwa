@@ -10,11 +10,11 @@ import { formatINR, shortDate } from '../domain/format.js';
 import {
   prepareReview,
   groupRowsByPayee,
-  initialAssignments,
   unassignedRowIds,
   buildImportTransactions,
   applyImportedTransactions,
 } from '../domain/statementImport.js';
+import { prefillAssignments, learnPayeeCategories } from '../domain/payeeMemory.js';
 
 const TYPE_DEFS = [
   { key: 'expense', label: 'Expense' },
@@ -48,7 +48,10 @@ export function ImportReview({ draft, onBack, onImported }) {
   // Computed once on open: rows already imported (non-deleted externalId match) are hidden.
   const [{ rows, alreadyImportedCount }] = useState(() => prepareReview(draft.rows, state.transactions));
   const groups = useMemo(() => groupRowsByPayee(rows), [rows]);
-  const [assignments, setAssignments] = useState(() => initialAssignments(rows));
+  // Prefilled from learned payee memory (#37); `prefilled` is kept to label groups still showing
+  // a remembered choice, so the user knows which ones they haven't actually looked at.
+  const [prefilled] = useState(() => prefillAssignments(rows, state.payeeCategoryMap, state));
+  const [assignments, setAssignments] = useState(prefilled);
   const [expanded, setExpanded] = useState(() => new Set());
   // null | { groupKey } | { rowId } — which picker sheet is open.
   const [picker, setPicker] = useState(null);
@@ -89,8 +92,12 @@ export function ImportReview({ draft, onBack, onImported }) {
 
   const submit = () => {
     if (!canSubmit) return;
-    const imported = buildImportTransactions(rows, assignments, { now: Date.now(), makeId });
-    setState((s) => applyImportedTransactions(s, imported));
+    const now = Date.now();
+    const imported = buildImportTransactions(rows, assignments, { now, makeId });
+    setState((s) => ({
+      ...applyImportedTransactions(s, imported),
+      payeeCategoryMap: learnPayeeCategories(s.payeeCategoryMap ?? {}, rows, assignments, now),
+    }));
     onImported(imported);
   };
 
@@ -179,6 +186,11 @@ export function ImportReview({ draft, onBack, onImported }) {
             const groupAssignment = uniformAssignment(group, assignments);
             const isOpen = expanded.has(group.key);
             const allSkipped = includedIdsOf(group).length === 0;
+            const remembered = groupAssignment?.categoryId != null && group.rows.every((r) => {
+              const a = assignments[r.externalId];
+              const p = prefilled[r.externalId];
+              return a.skip || (p.categoryId === a.categoryId && p.type === a.type);
+            });
             return (
               <div key={group.key} data-import-group={group.key} style={{ background: T.card, border: T.cardBorder, borderRadius: 16, padding: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
@@ -190,6 +202,12 @@ export function ImportReview({ draft, onBack, onImported }) {
                   </div>
                 </div>
 
+                {remembered && !allSkipped && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600, color: T.textTertiary, marginTop: 4 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>history</span>
+                    Remembered from a previous import
+                  </div>
+                )}
                 {allSkipped ? (
                   <div style={{ fontSize: 12.5, color: T.textTertiary, marginTop: 10 }}>All rows skipped</div>
                 ) : (

@@ -99,6 +99,14 @@ describe('buildBackupJson / parseBackupJson round-trip', () => {
     expect(parseBackupJson(JSON.stringify(parsed)).transactions).toEqual(withImported.transactions);
   });
 
+  it('round-trips the statement-import payee memory, and tolerates backups without it', () => {
+    const map = { 'debit:shop': { type: 'expense', categoryId: 'c1', updatedAt: 5 } };
+    expect(parseBackupJson(buildBackupJson({ ...state, payeeCategoryMap: map })).payeeCategoryMap).toEqual(map);
+    const legacy = JSON.parse(buildBackupJson(state));
+    delete legacy.payeeCategoryMap;
+    expect('payeeCategoryMap' in parseBackupJson(JSON.stringify(legacy))).toBe(false);
+  });
+
   it('excludes tombstoned (deletedAt set) transactions from the backup', () => {
     const withDeleted = {
       ...state,

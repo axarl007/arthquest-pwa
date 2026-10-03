@@ -62,11 +62,6 @@ export function groupRowsByPayee(rows) {
   return [...groups.values()];
 }
 
-/** `{ [externalId]: { type, categoryId, skip } }` — every row starts on its direction's type, uncategorized. */
-export function initialAssignments(rows) {
-  return Object.fromEntries(rows.map((r) => [r.externalId, { type: defaultTypeForDirection(r.direction), categoryId: null, skip: false }]));
-}
-
 function hasValidCategory(assignment, state) {
   return assignment.categoryId != null
     && categoryOptionsForType(assignment.type, state).some((o) => o.id === assignment.categoryId);

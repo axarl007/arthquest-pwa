@@ -101,4 +101,23 @@ await page.getByRole('button', { name: 'Back' }).click();
 await page.waitForTimeout(200);
 check('back returns to Settings', (await page.locator('body').innerText()).includes('Import bank statement'));
 
+// #37: a later statement with the same payees is prefilled from memory.
+const nextMonthPath = '/tmp/qa-phonepe-statement-nov.csv';
+fs.writeFileSync(nextMonthPath, [
+  HEADER,
+  '"Nov 02, 2026","11:00 am","Paid to HOME CENTRE","TQA5","U5","DEBIT","Paid by XXXXXX0000","999"',
+  '"Nov 01, 2026","08:00 am","Paid to Ravi Kumar G","TQA6","U6","DEBIT","Paid by XXXXXX0000","120"',
+  '"Nov 01, 2026","07:00 am","Paid to Brand New Shop","TQA7","U7","DEBIT","Paid by XXXXXX0000","60"',
+].join('\n'));
+data = await stored(page);
+check('payee memory learned on submit', data.payeeCategoryMap['debit:home centre']?.type === 'expense' && !!data.payeeCategoryMap['credit:priya s']);
+await page.setInputFiles('input[aria-label="Bank statement file"]', nextMonthPath);
+await page.waitForTimeout(300);
+body = await page.locator('body').innerText();
+check('known payees prefilled, only the new one needs a category', body.includes('1 needs a category'));
+check('prefilled groups say remembered', (await groupCard('HOME CENTRE').innerText()).includes('Remembered from a previous import')
+  && (await groupCard('HOME CENTRE').innerText()).includes('Shopping'));
+check('new payee not labelled remembered', !(await groupCard('Brand New Shop').innerText()).includes('Remembered'));
+await page.screenshot({ path: '/tmp/shot-import-prefilled.png' });
+
 await browser.close();
