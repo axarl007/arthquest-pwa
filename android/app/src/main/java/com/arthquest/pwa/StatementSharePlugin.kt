@@ -3,6 +3,7 @@ package com.arthquest.pwa
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.util.Base64
 import android.util.Log
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
@@ -23,7 +24,8 @@ private const val MAX_SHARE_BYTES = 5 * 1024 * 1024
 /**
  * Receives a bank/UPI statement file shared into the app from Android's share sheet (ticket #40)
  * — e.g. PhonePe's exported CSV, shared from PhonePe itself or a file manager — and hands its
- * text to JS, which runs the same parse + review flow as Settings' file picker
+ * raw bytes to JS (base64 — a PDF statement, #45, can't survive a UTF-8 round-trip), which runs
+ * the same load + parse + review flow as Settings' file picker
  * (src/domain/importers, src/screens/ImportReview.jsx). No parsing happens here.
  *
  * MainActivity's ACTION_SEND intent-filter routes the share here:
@@ -33,8 +35,8 @@ private const val MAX_SHARE_BYTES = 5 * 1024 * 1024
  *     handleOnNewIntent and is pushed as a 'shared' event (retained until a listener exists).
  *
  * JS surface (see src/native/statementShare.js):
- *   - getPendingShare(): Promise<{ text?: string, error?: string }> — the cold-start share, once.
- *   - event 'shared' -> { text?: string, error?: string }
+ *   - getPendingShare(): Promise<{ base64?: string, error?: string }> — the cold-start share, once.
+ *   - event 'shared' -> { base64?: string, error?: string }
  */
 @CapacitorPlugin(name = "StatementShare")
 class StatementSharePlugin : Plugin() {
@@ -102,12 +104,16 @@ class StatementSharePlugin : Plugin() {
         Thread {
             val result = JSObject()
             try {
-                val text = when {
-                    streamUri != null -> readText(streamUri)
-                    inlineText != null -> inlineText
+                val bytes = when {
+                    streamUri != null -> readBytes(streamUri)
+                    inlineText != null -> inlineText.toByteArray(Charsets.UTF_8)
                     else -> null
                 }
-                if (text == null) result.put("error", "Nothing to import in what was shared.") else result.put("text", text)
+                if (bytes == null) {
+                    result.put("error", "Nothing to import in what was shared.")
+                } else {
+                    result.put("base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Couldn't read shared file", e)
                 result.put("error", "Couldn't read the shared file.")
@@ -124,12 +130,12 @@ class StatementSharePlugin : Plugin() {
             intent.getParcelableExtra(Intent.EXTRA_STREAM)
         }
 
-    private fun readText(uri: Uri): String {
+    private fun readBytes(uri: Uri): ByteArray {
         val input = context.contentResolver.openInputStream(uri) ?: throw IllegalStateException("No stream for $uri")
         input.use { stream ->
             val bytes = stream.readNBytesCompat(MAX_SHARE_BYTES + 1)
             if (bytes.size > MAX_SHARE_BYTES) throw IllegalStateException("Shared file too large")
-            return String(bytes, Charsets.UTF_8)
+            return bytes
         }
     }
 

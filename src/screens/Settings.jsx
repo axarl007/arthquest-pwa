@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/useStore.js';
 import { useTheme } from '../theme/useTheme.js';
 import { SubscreenHeader } from '../components/ScreenHeader.jsx';
@@ -6,7 +6,7 @@ import { SegmentedControl } from '../components/SegmentedControl.jsx';
 import { freshState } from '../store/persistence.js';
 import { buildBackupJson, buildTransactionsCsv, parseBackupJson } from '../domain/exportData.js';
 import { exportFile } from '../native/exportFile.js';
-import { parseStatement, StatementImportError } from '../domain/importers/index.js';
+import { loadStatement } from '../native/loadStatement.js';
 
 const THEME_OPTIONS = [{ key: 'dark', label: 'Dark' }, { key: 'vibrant', label: 'Vibrant' }];
 const ICON_STYLE_OPTIONS = [{ key: 'flat', label: 'Flat' }, { key: 'cartoon', label: 'Cartoon' }];
@@ -76,21 +76,30 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
     reader.readAsText(file);
   };
 
+  // Read as bytes, not text: a PDF statement (#45) can't survive text decoding. Parsing a PDF can
+  // take a moment (pdf.js loads on first use), hence `readingStatement`.
+  // A load still running when Settings closes is dropped — opening its review afterwards would
+  // pop over whatever screen the user moved on to.
+  const [readingStatement, setReadingStatement] = useState(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true; // re-set: StrictMode's dev double-mount runs the cleanup once first
+    return () => { mountedRef.current = false; };
+  }, []);
   const importStatement = (file) => {
     setStatementError(null);
-    const reader = new FileReader();
-    reader.onload = () => {
-      let draft;
-      try {
-        draft = parseStatement(String(reader.result));
-      } catch (e) {
-        setStatementError(e instanceof StatementImportError ? e.message : "Couldn't read that file.");
-        return;
-      }
-      onOpenImport(draft);
-    };
-    reader.onerror = () => setStatementError("Couldn't read that file.");
-    reader.readAsText(file);
+    setReadingStatement(true);
+    file.arrayBuffer()
+      .then((buffer) => loadStatement(new Uint8Array(buffer)))
+      .then((draft) => {
+        if (mountedRef.current) onOpenImport(draft);
+      })
+      .catch((e) => {
+        if (mountedRef.current) setStatementError(e.message || "Couldn't read that file.");
+      })
+      .finally(() => {
+        if (mountedRef.current) setReadingStatement(false);
+      });
   };
 
   const confirmReset = () => {
@@ -177,9 +186,14 @@ export function Settings({ onBack, onOpenCategories, onAdjustIncomeSplit, onOpen
               e.target.value = '';
             }}
           />
-          <button type="button" onClick={() => statementInputRef.current?.click()} style={dataButtonStyle}>
+          <button
+            type="button"
+            onClick={() => statementInputRef.current?.click()}
+            disabled={readingStatement}
+            style={{ ...dataButtonStyle, opacity: readingStatement ? 0.6 : 1, cursor: readingStatement ? 'default' : 'pointer' }}
+          >
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>receipt_long</span>
-            Import bank statement
+            {readingStatement ? 'Reading statement…' : 'Import bank statement'}
           </button>
           {/* No `accept` filter: Android often reports a statement CSV as application/octet-stream
               (or similar), and a strict filter greys out the user's own file in the picker. Format

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from './store/useStore.js';
 import { useTheme } from './theme/useTheme.js';
 import { AppShell } from './components/AppShell.jsx';
@@ -30,7 +30,8 @@ import { useAndroidBackButton } from './native/useAndroidBackButton.js';
 import { useAppShortcutDeepLink } from './native/useAppShortcutDeepLink.js';
 import { useSharedStatement } from './native/useSharedStatement.js';
 import { canOpenSharedStatement } from './domain/sharedStatement.js';
-import { parseStatement, StatementImportError } from './domain/importers/index.js';
+import { loadStatement } from './native/loadStatement.js';
+import { base64ToBytes } from './domain/bytesCodec.js';
 
 const TAB_SCREENS = { home: Home, transactions: Transactions, budget: Budget, quests: Quests };
 
@@ -63,8 +64,8 @@ export default function App() {
   // The just-submitted import batch the undo toast (#38) can reverse: null | { transactionIds, previousPayeeEntries }.
   const [importUndo, setImportUndo] = useState(null);
   const dismissImportUndo = useCallback(() => setImportUndo(null), []);
-  // A statement shared in from Android's share sheet (#40), held until canOpenSharedStatement
-  // allows opening it: null | { text } | { error }.
+  // A statement shared in from Android's share sheet (#40), already loaded and parsed, held until
+  // canOpenSharedStatement allows opening it: null | { draft } | { error }.
   const [pendingShare, setPendingShare] = useState(null);
   // { message, id } to show on Settings' main screen when a shared file can't be imported — `id`
   // remounts Settings so a new error shows even if Settings was already open.
@@ -155,19 +156,27 @@ export default function App() {
   const openFromShortcut = (openFn) => {
     if (screen !== 'onboarding' && !sheet) openFn();
   };
-  useSharedStatement(setPendingShare);
+  // Loading (pdf.js for a PDF, #45) is async, so it starts the moment the share arrives —
+  // independent of what's on screen — and only the finished result waits for the guard below.
+  // `shareSeqRef` keeps the latest share winning when a slow PDF finishes after a later, quicker one.
+  const shareSeqRef = useRef(0);
+  useSharedStatement((share) => {
+    const seq = ++shareSeqRef.current;
+    const settle = (result) => {
+      if (seq === shareSeqRef.current) setPendingShare(result);
+    };
+    if (share.error) {
+      settle({ error: share.error });
+      return;
+    }
+    loadStatement(base64ToBytes(share.base64))
+      .then((draft) => settle({ draft }))
+      .catch((e) => settle({ error: e.message }));
+  });
   useEffect(() => {
     if (!pendingShare || !canOpenSharedStatement({ screen, sheet, settings, categoryDetail, questDetail })) return;
     setPendingShare(null);
-    let draft = null;
-    let error = pendingShare.error ?? null;
-    if (!error) {
-      try {
-        draft = parseStatement(pendingShare.text);
-      } catch (e) {
-        error = e instanceof StatementImportError ? e.message : "Couldn't read that file.";
-      }
-    }
+    const { draft, error } = pendingShare;
     if (draft) {
       setShareError(null);
       setImportDraft(draft);
