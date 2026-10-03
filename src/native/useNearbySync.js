@@ -5,7 +5,7 @@ import {
 } from './nearbySync.js';
 import { useForegroundVisible } from './useForegroundVisible.js';
 import { buildPing, buildPong, buildStateMessage, parseNearbyMessage } from '../domain/pingProtocol.js';
-import { syncPayload, applyIncomingSync } from '../domain/sync.js';
+import { syncPayload, applyIncomingSync, syncSizeStatus } from '../domain/sync.js';
 
 /** Maps a raw plugin-rejection message to user-facing copy — "requiresPermission" and Capacitor's
  * own "not implemented on web" (this app's PWA build has no native NearbySync — Android-only,
@@ -33,6 +33,8 @@ export function useNearbySync() {
   const [remoteName, setRemoteName] = useState(null);
   const [error, setError] = useState(null);
   const [lastRoundTripMs, setLastRoundTripMs] = useState(null);
+  // Size of the last attempted sync message vs the BYTES payload cap (#39): 'ok' | 'warning' | 'too_large'.
+  const [sizeStatus, setSizeStatus] = useState('ok');
   // True specifically when the "nearby" permission is the reason sync isn't working — denied the
   // first time, or revoked later via Android's own Settings (ticket #22) — as opposed to any
   // other connection error, so Pairing.jsx can show a distinct, actionable "Open Settings"
@@ -60,10 +62,19 @@ export function useNearbySync() {
   // immediate-delivery messages, not an unbounded amount of data, so a very long-lived account
   // could in principle need FILE/STREAM payloads or a real diff protocol instead of this. Not
   // reproducible without physical hardware and years of accumulated data, so left as documented
-  // debt rather than guessed at.
+  // debt rather than guessed at — except that statement import (#36) makes reaching the cap
+  // plausible, so (#39) the encoded size is checked first: past the cap the send is refused
+  // (rather than failing natively into a bare 'error' event) and the sync screen says why; from
+  // 70% it warns. That state is its own `sizeStatus`, not the shared `error` slot, so a ping or
+  // reconnect clearing `error` can't make a still-blocked sync look healthy. The real fix is diff
+  // sync (#41).
+  const encodeCurrentState = (s) => new TextEncoder().encode(buildStateMessage(syncPayload(s), s.deviceId));
   const sendCurrentState = (onFailure) => {
-    const message = buildStateMessage(syncPayload(stateRef.current), stateRef.current.deviceId);
-    sendBytes(new TextEncoder().encode(message)).catch(onFailure);
+    const bytes = encodeCurrentState(stateRef.current);
+    const size = syncSizeStatus(bytes.length);
+    setSizeStatus(size);
+    if (size === 'too_large') return;
+    sendBytes(bytes).catch(onFailure);
   };
 
   const pairedDeviceId = state.pairedDevice?.id ?? null;
@@ -79,6 +90,7 @@ export function useNearbySync() {
     setError(null);
     setPermissionDenied(false); // a fresh attempt — cleared until this attempt proves otherwise
     setLastRoundTripMs(null); // stale from a previous session — this one hasn't sent a ping yet
+    setSizeStatus('ok'); // re-measured on this session's first send/receive
     pendingPingRef.current = null;
 
     // Each addListener call's promise gets an immediate no-op .catch() (in addition to the real
@@ -145,7 +157,14 @@ export function useNearbySync() {
         // comment for why the check has to live there to actually close the race. lastSyncedAt
         // only advances on a real merge — never merely on 'connected' — so a transfer that never
         // arrives leaves it untouched.
-        setState((s) => applyIncomingSync(s, message.payload, message.senderId));
+        // Whether *this* device's data can reach the peer is judged from current state, not from
+        // whatever an earlier send (maybe on an earlier connection) found: if it's over the cap,
+        // merge what arrived but don't mark the pair synced (#39).
+        // (Measured from the latest state ref, outside the updater, so the result can also be
+        // surfaced on the Pairing screen without a side effect inside setState.)
+        const size = syncSizeStatus(encodeCurrentState(stateRef.current).length);
+        setSizeStatus(size);
+        setState((s) => applyIncomingSync(s, message.payload, message.senderId, Date.now(), { outgoingBlocked: size === 'too_large' }));
       }
     });
     receivedSub.catch(() => {});
@@ -199,5 +218,5 @@ export function useNearbySync() {
     openAppSettings().catch((err) => setError(friendlyErrorMessage(err?.message ?? String(err))));
   };
 
-  return { status, remoteName, error, lastRoundTripMs, sendPing, sync, permissionDenied, openAppSettings: openSettings };
+  return { status, remoteName, error, lastRoundTripMs, sendPing, sync, permissionDenied, sizeStatus, openAppSettings: openSettings };
 }

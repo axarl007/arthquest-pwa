@@ -10,6 +10,9 @@
  *   - quest categories: `questStatus`/`questRedeemedDate` — REDEEMED is terminal (sticky, like a
  *     tombstone); otherwise recomputed from the merged transactions, exactly as
  *     `recomputeQuestStatus` already does after every local transaction mutation.
+ *   - transactions: `externalId` — one live copy per imported statement row (#39), see
+ *     dedupeImportedDuplicates.
+ *   - payeeCategoryMap: per-key last-write-wins by `updatedAt` (#39).
  *   - budgetAllocations: deduped to one row per (categoryId, month) by `updatedAt` — editing a
  *     month hard-deletes its old rows and inserts new ones (saveAllocations' own doc comment), so
  *     two devices can independently replace the same month with different-id rows.
@@ -99,8 +102,56 @@ function activeRedemptionsByQuestId(mergedTransactions) {
   return byQuestId;
 }
 
+/**
+ * Two paired devices importing the same bank statement (ticket #39) each mint their own random
+ * transaction ids for the same rows, so a plain id-union keeps both copies and double-counts
+ * every one. Among non-deleted transactions sharing an `externalId`, the earliest `createdAt`
+ * (tie-broken by id) survives and the rest are tombstoned — the same content-derived,
+ * order-independent pattern (and the same `createdAt || 1` tombstone value) as
+ * dedupeConcurrentRedemptions above. Already-deleted copies don't compete, so an import undone on
+ * one device *before* the merge leaves the other device's copy as the survivor. After a merge the
+ * pair shares one live copy per row (the ledger is shared); once nothing live is left for a row,
+ * either device can import it again. A batch that lost any row to this dedup can no longer be
+ * undone as a batch (canUndoImport requires every row live) — the undo toast hides itself rather
+ * than half-undoing it, and the rows can still be deleted individually.
+ * Deterministic ids were rejected for this: an undo's tombstone would then block that row from
+ * ever being imported again on any device.
+ */
+function dedupeImportedDuplicates(transactions) {
+  const winnerByExternalId = new Map();
+  for (const t of notDeleted(transactions)) {
+    if (!t.externalId) continue;
+    const current = winnerByExternalId.get(t.externalId);
+    if (!current || t.createdAt < current.createdAt || (t.createdAt === current.createdAt && t.id < current.id)) {
+      winnerByExternalId.set(t.externalId, t);
+    }
+  }
+  let changed = false;
+  const result = transactions.map((t) => {
+    if (!t.externalId || t.deletedAt || winnerByExternalId.get(t.externalId) === t) return t;
+    changed = true;
+    return { ...t, deletedAt: t.createdAt || 1 };
+  });
+  return changed ? result : transactions;
+}
+
 function mergeTransactions(localTransactions, remoteTransactions) {
-  return dedupeConcurrentRedemptions(unionById(localTransactions, remoteTransactions, mergeTransaction));
+  return dedupeConcurrentRedemptions(dedupeImportedDuplicates(unionById(localTransactions, remoteTransactions, mergeTransaction)));
+}
+
+/** Statement-import payee memory (ticket #39): per-key last-write-wins on `updatedAt`, ties broken
+ * by the entry's own content so the result doesn't depend on which side is "local". A peer on an
+ * older app version sends no map at all — that's "nothing to add", never "delete everything". */
+function mergePayeeCategoryMaps(localMap, remoteMap) {
+  const merged = { ...(localMap ?? {}) };
+  for (const [key, remote] of Object.entries(remoteMap ?? {})) {
+    const local = merged[key];
+    if (!local || remote.updatedAt > local.updatedAt
+      || (remote.updatedAt === local.updatedAt && JSON.stringify(remote) > JSON.stringify(local))) {
+      merged[key] = remote;
+    }
+  }
+  return merged;
 }
 
 /** Last-write-wins by `archivedAt`; a never-toggled `null` is strictly older than any real
@@ -215,7 +266,8 @@ export function mergeState(local, remote, lastSyncedAt = null) {
   const categories = mergeCategories(local.categories, remote.categories, transactions);
   const incomeCategories = mergeIncomeCategories(local.incomeCategories, remote.incomeCategories);
   const budgetAllocations = mergeBudgetAllocations(local.budgetAllocations, remote.budgetAllocations);
-  return { transactions, categories, incomeCategories, budgetAllocations };
+  const payeeCategoryMap = mergePayeeCategoryMaps(local.payeeCategoryMap, remote.payeeCategoryMap);
+  return { transactions, categories, incomeCategories, budgetAllocations, payeeCategoryMap };
 }
 
 /**
@@ -229,7 +281,25 @@ export function syncPayload(state) {
     categories: state.categories,
     incomeCategories: state.incomeCategories,
     budgetAllocations: state.budgetAllocations,
+    payeeCategoryMap: state.payeeCategoryMap ?? {},
   };
+}
+
+/** Nearby Connections' `ConnectionsClient.MAX_BYTES_DATA_SIZE` — the largest BYTES payload
+ * sendPayload accepts. Sync sends the whole state as one such payload (see useNearbySync). */
+export const MAX_SYNC_PAYLOAD_BYTES = 1047552;
+const SYNC_SIZE_WARNING_RATIO = 0.7;
+
+/**
+ * 'ok' | 'warning' | 'too_large' for an encoded sync message of `byteLength` bytes (ticket #39).
+ * Statement import makes reaching the cap plausible within a few years; over it the native send
+ * would fail with nothing but an error event, so the caller refuses to send and says why, and
+ * warns well before that. The real fix (diff sync, #41) is deliberately deferred until this warns.
+ */
+export function syncSizeStatus(byteLength) {
+  if (byteLength > MAX_SYNC_PAYLOAD_BYTES) return 'too_large';
+  if (byteLength >= MAX_SYNC_PAYLOAD_BYTES * SYNC_SIZE_WARNING_RATIO) return 'warning';
+  return 'ok';
 }
 
 /**
@@ -253,9 +323,13 @@ export function syncPayload(state) {
  * any `senderId`) — e.g. right after Settings.jsx's confirmReset explicitly unpairs *because* it
  * just wiped local data, so a stray message from the old peer must not resurrect it.
  */
-export function applyIncomingSync(localState, remotePayload, senderId, now = Date.now()) {
+export function applyIncomingSync(localState, remotePayload, senderId, now = Date.now(), { outgoingBlocked = false } = {}) {
   if (localState.pairedDevice?.id !== senderId) return localState;
   const merged = mergeState(localState, remotePayload, localState.pairedDevice.lastSyncedAt);
+  // `outgoingBlocked` (#39): this device refused to send its own data (over the payload cap), so
+  // the peer still lacks it — merging what arrived is fine, but marking the pair synced would hide
+  // the pending-change count and stale-sync nudge for data that never left this device.
+  if (outgoingBlocked) return { ...merged, pairedDevice: localState.pairedDevice };
   return { ...merged, pairedDevice: { ...localState.pairedDevice, lastSyncedAt: now } };
 }
 

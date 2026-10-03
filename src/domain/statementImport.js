@@ -125,7 +125,7 @@ export function applyImportedTransactions(state, imported) {
 }
 
 /** `{ [key]: previous entry | null }` for every payee-memory key whose value `next` changed —
- * what undoImport needs to put the memory back exactly as the import found it. */
+ * with the matching `next` entries, what undoImport needs to put the memory back. */
 export function payeeEntriesChangedBy(prevMap, nextMap) {
   const changed = {};
   for (const key of Object.keys(nextMap)) {
@@ -139,7 +139,7 @@ export function payeeEntriesChangedBy(prevMap, nextMap) {
  * every transaction in `batch.transactionIds`, recomputes the quests they touched, and puts back
  * the payee-memory entries the import overwrote, so a wrong mapping that was just undone isn't
  * prefilled again next time. Only the batch's own keys are restored, not a whole-map snapshot, so
- * anything else written to the map meanwhile (e.g. a sync) survives. Tombstoned rows no longer
+ * anything else written to the map meanwhile survives. Tombstoned rows no longer
  * count as already imported (prepareReview), so the same file can be imported again.
  */
 export function undoImport(state, batch, now = Date.now()) {
@@ -148,10 +148,18 @@ export function undoImport(state, batch, now = Date.now()) {
   const questIds = new Set(state.transactions.filter((t) => ids.has(t.id) && t.type === 'quest_contribution').map((t) => t.categoryId));
   let categories = state.categories;
   for (const questId of questIds) categories = withRecomputedQuestStatus(categories, questId, transactions);
+  // Restored as *new* writes stamped `now` — a key the import created becomes a cleared entry
+  // rather than being deleted — so payee memory's last-write-wins sync merge (#39) carries the undo
+  // to a peer that already received the import, instead of the peer's newer entry winning it back.
+  // A key is only restored while it still holds exactly what this import wrote — if a sync (or a
+  // later import) changed it since, that newer choice wins and undo leaves it alone.
   const payeeCategoryMap = { ...(state.payeeCategoryMap ?? {}) };
+  const sameEntry = (a, b) => a?.type === b?.type && a?.categoryId === b?.categoryId && a?.updatedAt === b?.updatedAt;
   for (const [key, previous] of Object.entries(batch.previousPayeeEntries ?? {})) {
-    if (previous) payeeCategoryMap[key] = previous;
-    else delete payeeCategoryMap[key];
+    if (!sameEntry(payeeCategoryMap[key], batch.learnedPayeeEntries?.[key])) continue;
+    payeeCategoryMap[key] = previous
+      ? { ...previous, updatedAt: now }
+      : { type: null, categoryId: null, updatedAt: now };
   }
   return { transactions, categories, payeeCategoryMap };
 }

@@ -134,7 +134,7 @@ data = await stored(page);
 const novRows = data.transactions.filter((t) => ['phonepe:TQA5', 'phonepe:TQA6', 'phonepe:TQA7'].includes(t.externalId));
 check('undo tombstones the batch', novRows.length === 3 && novRows.every((t) => t.deletedAt));
 check('undo leaves earlier imports alone', data.transactions.filter((t) => t.externalId && !t.deletedAt).length === 3);
-check('undo removes newly learned payee', !data.payeeCategoryMap['debit:brand new shop']);
+check('undo clears newly learned payee', data.payeeCategoryMap['debit:brand new shop']?.categoryId === null);
 check('undo keeps memory from the earlier import', data.payeeCategoryMap['debit:home centre']?.categoryId === byExt['phonepe:TQA2'].categoryId);
 check('toast gone after undo', (await page.getByRole('status').count()) === 0);
 body = await page.locator('body').innerText();

@@ -96,13 +96,15 @@ export function ImportReview({ draft, onBack, onImported }) {
     const now = Date.now();
     const imported = buildImportTransactions(rows, assignments, { now, makeId });
     const previousMap = state.payeeCategoryMap ?? {};
-    const previousPayeeEntries = payeeEntriesChangedBy(previousMap, learnPayeeCategories(previousMap, rows, assignments, now));
+    const nextMap = learnPayeeCategories(previousMap, rows, assignments, now);
+    const previousPayeeEntries = payeeEntriesChangedBy(previousMap, nextMap);
+    const learnedPayeeEntries = Object.fromEntries(Object.keys(previousPayeeEntries).map((key) => [key, nextMap[key]]));
     setState((s) => ({
       ...applyImportedTransactions(s, imported),
       payeeCategoryMap: learnPayeeCategories(s.payeeCategoryMap ?? {}, rows, assignments, now),
     }));
     // Everything undoImport (#38) needs to reverse this batch.
-    onImported({ transactionIds: imported.map((t) => t.id), previousPayeeEntries });
+    onImported({ transactionIds: imported.map((t) => t.id), previousPayeeEntries, learnedPayeeEntries });
   };
 
   const optionById = (type, id) => categoryOptionsForType(type, state).find((o) => o.id === id) ?? null;

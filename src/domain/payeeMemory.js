@@ -6,7 +6,8 @@
  * `state.payeeCategoryMap` = `{ [key]: { type, categoryId, updatedAt } }`. `categoryId` names an
  * income category when `type` is 'income' and a budget category/quest otherwise — the same split
  * a transaction stores across categoryId/incomeCategoryId, folded into one field since `type`
- * already disambiguates. The key includes the direction (see payeeMemoryKey) so paying someone and
+ * already disambiguates. An undone import leaves a cleared `{ type: null, categoryId: null }` entry
+ * (see undoImport) rather than deleting the key, so the undo wins sync merges. The key includes the direction (see payeeMemoryKey) so paying someone and
  * being paid back by them are remembered separately, matching how the review screen groups rows.
  */
 import { normalizePayee, defaultTypeForDirection } from './statementImport.js';

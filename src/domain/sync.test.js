@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   mergeState, syncPayload, applyIncomingSync, pendingChangeCount, formatSyncedLabel, shouldNudgeStaleSync,
-  STALE_SYNC_THRESHOLD_MS,
+  STALE_SYNC_THRESHOLD_MS, syncSizeStatus, MAX_SYNC_PAYLOAD_BYTES,
 } from './sync.js';
 import { ensureMonthSeeded, saveAllocations } from './allocations.js';
 import { cumulativePosition } from './transactions.js';
@@ -290,7 +290,7 @@ describe('mergeState — determinism and idempotency', () => {
 });
 
 describe('syncPayload', () => {
-  it('extracts exactly the four synced fields, ignoring everything else in state', () => {
+  it('extracts exactly the five synced fields, ignoring everything else in state', () => {
     const full = state({
       transactions: [tx('t1')],
       categories: [cat('c1')],
@@ -301,11 +301,12 @@ describe('syncPayload', () => {
       pairedDevice: { id: 'device-2', name: 'Other Phone', pairedAt: 1, lastSyncedAt: null },
       theme: 'dark',
     });
-    expect(syncPayload(full)).toEqual({
+    expect(syncPayload({ ...full, payeeCategoryMap: { 'debit:shop': { type: 'expense', categoryId: 'c1', updatedAt: 1 } } })).toEqual({
       transactions: [tx('t1')],
       categories: [cat('c1')],
       incomeCategories: [income('i1')],
       budgetAllocations: [alloc('a1')],
+      payeeCategoryMap: { 'debit:shop': { type: 'expense', categoryId: 'c1', updatedAt: 1 } },
     });
   });
 });
@@ -512,5 +513,101 @@ describe('shouldNudgeStaleSync', () => {
     });
     expect(shouldNudgeStaleSync(s, 2000 + STALE_SYNC_THRESHOLD_MS - 1)).toBe(false);
     expect(shouldNudgeStaleSync(s, 2000 + STALE_SYNC_THRESHOLD_MS + 1)).toBe(true);
+  });
+});
+
+describe('mergeState — statement-import duplicates (#39)', () => {
+  const imp = (id, createdAt, over = {}) => tx(id, { externalId: 'phonepe:T1', createdAt, ...over });
+
+  it('keeps the earliest-created copy of a statement row imported on both devices and tombstones the rest', () => {
+    const merged = mergeState(state({ transactions: [imp('a', 200)] }), state({ transactions: [imp('b', 100)] }));
+    const byId = Object.fromEntries(merged.transactions.map((t) => [t.id, t]));
+    expect(byId.b.deletedAt).toBeNull();
+    expect(byId.a.deletedAt).toBe(200);
+    expect(cumulativePosition(merged.transactions)).toBe(-100);
+  });
+
+  it('is order-independent and idempotent', () => {
+    const left = state({ transactions: [imp('a', 100)] });
+    const right = state({ transactions: [imp('b', 100)] }); // createdAt tie → smaller id wins
+    const ab = mergeState(left, right);
+    const ba = mergeState(right, left);
+    const sortById = (ts) => [...ts].sort((x, y) => (x.id < y.id ? -1 : 1));
+    expect(sortById(ab.transactions)).toEqual(sortById(ba.transactions));
+    expect(ab.transactions.find((t) => t.id === 'a').deletedAt).toBeNull();
+    expect(sortById(mergeState(ab, ab).transactions)).toEqual(sortById(ab.transactions));
+  });
+
+  it('ignores already-deleted copies (an undone import on one device keeps the other device\'s live copy)', () => {
+    const merged = mergeState(state({ transactions: [imp('a', 100, { deletedAt: 500 })] }), state({ transactions: [imp('b', 200)] }));
+    expect(merged.transactions.find((t) => t.id === 'b').deletedAt).toBeNull();
+  });
+
+  it('leaves transactions without an externalId alone', () => {
+    const merged = mergeState(state({ transactions: [tx('m1')] }), state({ transactions: [tx('m2')] }));
+    expect(merged.transactions.every((t) => t.deletedAt === null)).toBe(true);
+  });
+
+  it('recomputes a quest whose completion came only from a duplicated contribution', () => {
+    const q = quest('q1', { questTargetAmount: 150, questStatus: 'completed' });
+    const contribution = (id, createdAt) => tx(id, { type: 'quest_contribution', categoryId: 'q1', amount: 100, externalId: 'phonepe:Q', createdAt });
+    const merged = mergeState(
+      state({ categories: [q], transactions: [contribution('a', 1)] }),
+      state({ categories: [q], transactions: [contribution('b', 2)] }),
+    );
+    expect(merged.categories[0].questStatus).toBe('active');
+  });
+});
+
+describe('mergeState — payee category memory (#39)', () => {
+  const entry = (categoryId, updatedAt) => ({ type: 'expense', categoryId, updatedAt });
+
+  it('unions keys, last write wins per key', () => {
+    const merged = mergeState(
+      state({ payeeCategoryMap: { 'debit:a': entry('x', 1), 'debit:b': entry('y', 5) } }),
+      state({ payeeCategoryMap: { 'debit:a': entry('z', 2), 'debit:c': entry('w', 1) } }),
+    );
+    expect(merged.payeeCategoryMap).toEqual({ 'debit:a': entry('z', 2), 'debit:b': entry('y', 5), 'debit:c': entry('w', 1) });
+  });
+
+  it('breaks updatedAt ties deterministically', () => {
+    const l = state({ payeeCategoryMap: { k: entry('x', 1) } });
+    const r = state({ payeeCategoryMap: { k: entry('y', 1) } });
+    expect(mergeState(l, r).payeeCategoryMap).toEqual(mergeState(r, l).payeeCategoryMap);
+  });
+
+  it('keeps the local map when the peer runs an older version without one', () => {
+    const local = state({ payeeCategoryMap: { k: entry('x', 1) } });
+    const { payeeCategoryMap: _omit, ...olderPeer } = { ...state(), payeeCategoryMap: undefined };
+    expect(mergeState(local, olderPeer).payeeCategoryMap).toEqual({ k: entry('x', 1) });
+  });
+});
+
+describe('syncSizeStatus (#39)', () => {
+  it('uses the Nearby BYTES payload cap', () => {
+    expect(MAX_SYNC_PAYLOAD_BYTES).toBe(1047552);
+  });
+  it('is ok below 70%, warning from 70%, too_large over the cap', () => {
+    expect(syncSizeStatus(1000)).toBe('ok');
+    expect(syncSizeStatus(Math.ceil(MAX_SYNC_PAYLOAD_BYTES * 0.7))).toBe('warning');
+    expect(syncSizeStatus(MAX_SYNC_PAYLOAD_BYTES)).toBe('warning');
+    expect(syncSizeStatus(MAX_SYNC_PAYLOAD_BYTES + 1)).toBe('too_large');
+  });
+});
+
+describe('applyIncomingSync — outgoing send refused (#39)', () => {
+  it('still merges the peer\'s data but leaves lastSyncedAt alone when this device could not send', () => {
+    const local = state({ transactions: [tx('t1')], pairedDevice: { id: 'device-2', name: 'Other', pairedAt: 1, lastSyncedAt: 1000 } });
+    const result = applyIncomingSync(local, syncPayload(state({ transactions: [tx('t2')] })), 'device-2', 9999, { outgoingBlocked: true });
+    expect(result.transactions.map((t) => t.id).sort()).toEqual(['t1', 't2']);
+    expect(result.pairedDevice.lastSyncedAt).toBe(1000);
+  });
+});
+
+describe('payee memory undo survives sync (#39)', () => {
+  it('a newer undo entry beats the peer\'s older learned entry', () => {
+    const learned = { type: 'expense', categoryId: 'wrong', updatedAt: 500 };
+    const undone = { type: null, categoryId: null, updatedAt: 600 };
+    expect(mergeState(state({ payeeCategoryMap: { k: undone } }), state({ payeeCategoryMap: { k: learned } })).payeeCategoryMap.k).toEqual(undone);
   });
 });

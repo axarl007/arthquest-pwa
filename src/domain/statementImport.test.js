@@ -176,6 +176,7 @@ describe('undoImport', () => {
   const batch = {
     transactionIds: ['imp1', 'imp2'],
     previousPayeeEntries: { 'debit:shop': { type: 'expense', categoryId: 'old', updatedAt: 1 }, 'debit:new': null },
+    learnedPayeeEntries: { 'debit:shop': { type: 'expense', categoryId: 'food', updatedAt: 9 }, 'debit:new': { type: 'expense', categoryId: 'food', updatedAt: 9 } },
   };
 
   it('tombstones exactly the batch and recomputes touched quests', () => {
@@ -184,11 +185,19 @@ describe('undoImport', () => {
     expect(patch.categories.find((c) => c.id === 'trip').questStatus).toBe('active');
   });
 
-  it('restores the payee memory entries the import changed, leaving others alone', () => {
+  it('restores the payee memory entries the import changed as newer writes, leaving others alone', () => {
+    // Re-stamped with `now` (and a cleared entry instead of a deletion) so last-write-wins sync
+    // can't bring the undone choice back from a peer that already received it.
     expect(undoImport(base, batch, 77).payeeCategoryMap).toEqual({
-      'debit:shop': { type: 'expense', categoryId: 'old', updatedAt: 1 },
+      'debit:shop': { type: 'expense', categoryId: 'old', updatedAt: 77 },
+      'debit:new': { type: null, categoryId: null, updatedAt: 77 },
       'debit:untouched': { type: 'expense', categoryId: 'food', updatedAt: 1 },
     });
+  });
+
+  it('leaves a payee entry alone if it changed since the import (e.g. a peer synced a newer choice)', () => {
+    const changed = { ...base, payeeCategoryMap: { ...base.payeeCategoryMap, 'debit:shop': { type: 'expense', categoryId: 'peer', updatedAt: 50 } } };
+    expect(undoImport(changed, batch, 77).payeeCategoryMap['debit:shop']).toEqual({ type: 'expense', categoryId: 'peer', updatedAt: 50 });
   });
 
   it('makes the rows importable again', () => {

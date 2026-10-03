@@ -91,6 +91,11 @@ describe('prefillAssignments', () => {
     });
   });
 
+  it('ignores a cleared (undone) entry', () => {
+    const map = { 'debit:shop': { type: null, categoryId: null, updatedAt: 9 } };
+    expect(prefillAssignments([row({ externalId: 'a' })], map, state).a).toEqual({ type: 'expense', categoryId: null, skip: false });
+  });
+
   it('treats a missing map as empty', () => {
     expect(prefillAssignments([row({ externalId: 'a' })], undefined, state).a.categoryId).toBeNull();
   });
