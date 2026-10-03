@@ -7,6 +7,9 @@ import {
   unassignedRowIds,
   buildImportTransactions,
   applyImportedTransactions,
+  undoImport,
+  canUndoImport,
+  payeeEntriesChangedBy,
 } from './statementImport.js';
 import { categoryOptionsForType } from './categoryOptions.js';
 
@@ -152,5 +155,75 @@ describe('applyImportedTransactions', () => {
   it('leaves categories untouched when no quest is involved', () => {
     const patch = applyImportedTransactions(state, [{ id: 'n1', type: 'expense', amount: 1, categoryId: 'food' }]);
     expect(patch.categories).toBe(state.categories);
+  });
+});
+
+describe('undoImport', () => {
+  const base = {
+    ...state,
+    transactions: [
+      { id: 'keep', type: 'expense', amount: 5, categoryId: 'food', deletedAt: null },
+      { id: 'imp1', type: 'expense', amount: 5, categoryId: 'food', deletedAt: null, externalId: 'phonepe:1' },
+      { id: 'imp2', type: 'quest_contribution', amount: 1000, categoryId: 'trip', deletedAt: null, externalId: 'phonepe:2' },
+    ],
+    categories: state.categories.map((c) => (c.id === 'trip' ? { ...c, questStatus: 'completed' } : c)),
+    payeeCategoryMap: {
+      'debit:shop': { type: 'expense', categoryId: 'food', updatedAt: 9 },
+      'debit:new': { type: 'expense', categoryId: 'food', updatedAt: 9 },
+      'debit:untouched': { type: 'expense', categoryId: 'food', updatedAt: 1 },
+    },
+  };
+  const batch = {
+    transactionIds: ['imp1', 'imp2'],
+    previousPayeeEntries: { 'debit:shop': { type: 'expense', categoryId: 'old', updatedAt: 1 }, 'debit:new': null },
+  };
+
+  it('tombstones exactly the batch and recomputes touched quests', () => {
+    const patch = undoImport(base, batch, 77);
+    expect(patch.transactions.map((t) => [t.id, t.deletedAt])).toEqual([['keep', null], ['imp1', 77], ['imp2', 77]]);
+    expect(patch.categories.find((c) => c.id === 'trip').questStatus).toBe('active');
+  });
+
+  it('restores the payee memory entries the import changed, leaving others alone', () => {
+    expect(undoImport(base, batch, 77).payeeCategoryMap).toEqual({
+      'debit:shop': { type: 'expense', categoryId: 'old', updatedAt: 1 },
+      'debit:untouched': { type: 'expense', categoryId: 'food', updatedAt: 1 },
+    });
+  });
+
+  it('makes the rows importable again', () => {
+    const patch = undoImport(base, batch, 77);
+    const again = prepareReview([row({ externalId: 'phonepe:1' })], patch.transactions);
+    expect(again.rows).toHaveLength(1);
+  });
+});
+
+describe('payeeEntriesChangedBy', () => {
+  it('captures the previous value (or null) of every key that differs', () => {
+    const prev = { a: { categoryId: 'x' }, b: { categoryId: 'y' } };
+    const next = { a: prev.a, b: { categoryId: 'z' }, c: { categoryId: 'w' } };
+    expect(payeeEntriesChangedBy(prev, next)).toEqual({ b: { categoryId: 'y' }, c: null });
+  });
+});
+
+describe('canUndoImport', () => {
+  const txs = [
+    { id: 'imp1', type: 'expense', categoryId: 'food', deletedAt: null },
+    { id: 'imp2', type: 'quest_contribution', categoryId: 'trip', deletedAt: null },
+  ];
+  const batch = { transactionIds: ['imp1', 'imp2'], previousPayeeEntries: {} };
+
+  it('allows undo while every batch transaction is still live', () => {
+    expect(canUndoImport({ ...state, transactions: txs }, batch)).toBe(true);
+  });
+
+  it('refuses once the batch is gone (reset, backup restore) or partly deleted', () => {
+    expect(canUndoImport({ ...state, transactions: [] }, batch)).toBe(false);
+    expect(canUndoImport({ ...state, transactions: [txs[0], { ...txs[1], deletedAt: 5 }] }, batch)).toBe(false);
+  });
+
+  it('refuses once a quest the batch contributed to has been redeemed', () => {
+    const categories = state.categories.map((c) => (c.id === 'trip' ? { ...c, questStatus: 'redeemed' } : c));
+    expect(canUndoImport({ ...state, categories, transactions: txs }, batch)).toBe(false);
   });
 });

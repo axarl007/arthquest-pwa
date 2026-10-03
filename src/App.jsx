@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useStore } from './store/useStore.js';
 import { useTheme } from './theme/useTheme.js';
 import { AppShell } from './components/AppShell.jsx';
@@ -20,6 +20,8 @@ import { Settings } from './screens/Settings.jsx';
 import { Categories } from './screens/Categories.jsx';
 import { Pairing } from './screens/Pairing.jsx';
 import { ImportReview } from './screens/ImportReview.jsx';
+import { ImportUndoToast } from './components/ImportUndoToast.jsx';
+import { undoImport, canUndoImport } from './domain/statementImport.js';
 import { resolveTransactionSubject } from './domain/transactions.js';
 import { dueReminders } from './domain/reminders.js';
 import { todayIso } from './domain/format.js';
@@ -53,6 +55,9 @@ export default function App() {
   const [settings, setSettings] = useState(null); // null | 'main' | 'categories' | 'pairing' | 'pairing-direct' | 'import'
   // The parsed statement (domain/importers parseStatement result) the 'import' subscreen reviews.
   const [importDraft, setImportDraft] = useState(null);
+  // The just-submitted import batch the undo toast (#38) can reverse: null | { transactionIds, previousPayeeEntries }.
+  const [importUndo, setImportUndo] = useState(null);
+  const dismissImportUndo = useCallback(() => setImportUndo(null), []);
   // null | { type: 'log', initialType?, initialCategoryId? } | { type: 'txActions', tx } |
   // { type: 'budgetActions' } | { type: 'addCategory', context, initialGroup } | { type: 'newQuest', initialName? }
   const [sheet, setSheet] = useState(null);
@@ -205,8 +210,9 @@ export default function App() {
             <ImportReview
               draft={importDraft}
               onBack={() => setSettings(settingsBackTarget(settings))}
-              onImported={() => {
+              onImported={(batch) => {
                 setImportDraft(null);
+                setImportUndo(batch);
                 navigateToTab('transactions');
               }}
             />
@@ -254,6 +260,22 @@ export default function App() {
             onAddContribution={(questId) => setSheet({ type: 'log', initialType: 'quest_contribution', initialCategoryId: questId })}
           />
         </div>
+      )}
+
+      {/* canUndoImport hides the toast once undo would be unsafe — a reset or backup restore
+          replaced the batch, or a quest it completed has since been redeemed. */}
+      {importUndo && canUndoImport(state, importUndo) && (
+        <ImportUndoToast
+          // Keyed per batch so a new import restarts the auto-dismiss timer.
+          key={importUndo.transactionIds[0]}
+          count={importUndo.transactionIds.length}
+          onDismiss={dismissImportUndo}
+          onUndo={() => {
+            const batch = importUndo;
+            setState((s) => (canUndoImport(s, batch) ? undoImport(s, batch) : s));
+            setImportUndo(null);
+          }}
+        />
       )}
 
       {sheet?.type === 'log' && (

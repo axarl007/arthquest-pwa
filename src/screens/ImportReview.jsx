@@ -13,6 +13,7 @@ import {
   unassignedRowIds,
   buildImportTransactions,
   applyImportedTransactions,
+  payeeEntriesChangedBy,
 } from '../domain/statementImport.js';
 import { prefillAssignments, learnPayeeCategories } from '../domain/payeeMemory.js';
 
@@ -94,11 +95,14 @@ export function ImportReview({ draft, onBack, onImported }) {
     if (!canSubmit) return;
     const now = Date.now();
     const imported = buildImportTransactions(rows, assignments, { now, makeId });
+    const previousMap = state.payeeCategoryMap ?? {};
+    const previousPayeeEntries = payeeEntriesChangedBy(previousMap, learnPayeeCategories(previousMap, rows, assignments, now));
     setState((s) => ({
       ...applyImportedTransactions(s, imported),
       payeeCategoryMap: learnPayeeCategories(s.payeeCategoryMap ?? {}, rows, assignments, now),
     }));
-    onImported(imported);
+    // Everything undoImport (#38) needs to reverse this batch.
+    onImported({ transactionIds: imported.map((t) => t.id), previousPayeeEntries });
   };
 
   const optionById = (type, id) => categoryOptionsForType(type, state).find((o) => o.id === id) ?? null;

@@ -123,3 +123,50 @@ export function applyImportedTransactions(state, imported) {
   for (const questId of questIds) categories = withRecomputedQuestStatus(categories, questId, transactions);
   return { transactions, categories };
 }
+
+/** `{ [key]: previous entry | null }` for every payee-memory key whose value `next` changed —
+ * what undoImport needs to put the memory back exactly as the import found it. */
+export function payeeEntriesChangedBy(prevMap, nextMap) {
+  const changed = {};
+  for (const key of Object.keys(nextMap)) {
+    if (nextMap[key] !== prevMap[key]) changed[key] = prevMap[key] ?? null;
+  }
+  return changed;
+}
+
+/**
+ * Undo of one import batch (ticket #38): tombstones (never hard-deletes — see deleteTransaction)
+ * every transaction in `batch.transactionIds`, recomputes the quests they touched, and puts back
+ * the payee-memory entries the import overwrote, so a wrong mapping that was just undone isn't
+ * prefilled again next time. Only the batch's own keys are restored, not a whole-map snapshot, so
+ * anything else written to the map meanwhile (e.g. a sync) survives. Tombstoned rows no longer
+ * count as already imported (prepareReview), so the same file can be imported again.
+ */
+export function undoImport(state, batch, now = Date.now()) {
+  const ids = new Set(batch.transactionIds);
+  const transactions = state.transactions.map((t) => (ids.has(t.id) && !t.deletedAt ? { ...t, deletedAt: now } : t));
+  const questIds = new Set(state.transactions.filter((t) => ids.has(t.id) && t.type === 'quest_contribution').map((t) => t.categoryId));
+  let categories = state.categories;
+  for (const questId of questIds) categories = withRecomputedQuestStatus(categories, questId, transactions);
+  const payeeCategoryMap = { ...(state.payeeCategoryMap ?? {}) };
+  for (const [key, previous] of Object.entries(batch.previousPayeeEntries ?? {})) {
+    if (previous) payeeCategoryMap[key] = previous;
+    else delete payeeCategoryMap[key];
+  }
+  return { transactions, categories, payeeCategoryMap };
+}
+
+/**
+ * Whether `batch` can still be undone safely: every one of its transactions must still be live
+ * (a reset or backup restore since the import replaces them — undoing then would write stale
+ * payee memory into unrelated data), and no quest it contributed to may have been redeemed since
+ * (the redemption's amount was the contribution total at that moment, which undo would make
+ * exceed what's left).
+ */
+export function canUndoImport(state, batch) {
+  const byId = new Map(state.transactions.map((t) => [t.id, t]));
+  const batchTxs = batch.transactionIds.map((id) => byId.get(id));
+  if (batchTxs.some((t) => !t || t.deletedAt)) return false;
+  const questIds = new Set(batchTxs.filter((t) => t.type === 'quest_contribution').map((t) => t.categoryId));
+  return !state.categories.some((c) => questIds.has(c.id) && c.questStatus === 'redeemed');
+}

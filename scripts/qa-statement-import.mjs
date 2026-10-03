@@ -120,4 +120,36 @@ check('prefilled groups say remembered', (await groupCard('HOME CENTRE').innerTe
 check('new payee not labelled remembered', !(await groupCard('Brand New Shop').innerText()).includes('Remembered'));
 await page.screenshot({ path: '/tmp/shot-import-prefilled.png' });
 
+// #38: undo the batch — rows tombstoned, memory restored, file importable again.
+await pick('Brand New Shop', 'Groceries');
+await page.getByRole('button', { name: /^Import 3/ }).click();
+await page.waitForTimeout(300);
+check('undo toast shown after import', (await page.getByRole('status').innerText()).includes('Imported 3 transactions'));
+await page.screenshot({ path: '/tmp/shot-import-toast.png' });
+data = await stored(page);
+check('new payee learned before undo', !!data.payeeCategoryMap['debit:brand new shop']);
+await page.getByRole('status').getByText('Undo', { exact: true }).click();
+await page.waitForTimeout(300);
+data = await stored(page);
+const novRows = data.transactions.filter((t) => ['phonepe:TQA5', 'phonepe:TQA6', 'phonepe:TQA7'].includes(t.externalId));
+check('undo tombstones the batch', novRows.length === 3 && novRows.every((t) => t.deletedAt));
+check('undo leaves earlier imports alone', data.transactions.filter((t) => t.externalId && !t.deletedAt).length === 3);
+check('undo removes newly learned payee', !data.payeeCategoryMap['debit:brand new shop']);
+check('undo keeps memory from the earlier import', data.payeeCategoryMap['debit:home centre']?.categoryId === byExt['phonepe:TQA2'].categoryId);
+check('toast gone after undo', (await page.getByRole('status').count()) === 0);
+body = await page.locator('body').innerText();
+check('undone rows gone from list', !body.includes('Brand New Shop'));
+
+await page.getByText('Home', { exact: true }).click();
+await page.waitForTimeout(200);
+await page.locator('button[aria-label="Settings"]').click();
+await page.waitForTimeout(200);
+await page.setInputFiles('input[aria-label="Bank statement file"]', nextMonthPath);
+await page.waitForTimeout(300);
+check('undone rows importable again', (await page.locator('body').innerText()).includes('3 new transactions'));
+await pick('Brand New Shop', 'Groceries');
+await page.getByRole('button', { name: /^Import 3/ }).click();
+await page.waitForTimeout(10600);
+check('toast auto-dismisses after ~10s', (await page.getByRole('status').count()) === 0);
+
 await browser.close();
