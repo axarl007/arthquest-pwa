@@ -4,21 +4,26 @@ import { halfUpRound } from '../money.js';
 const HEADER = ['Date', 'Time', 'Transaction Details', 'Transaction ID', 'UTR', 'Transaction Type'];
 // Date, Time, Details, Transaction ID, UTR, Type, Instrument, Amount.
 const HEADER_FIELD_COUNT = 8;
-const MONTHS = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
-const PAYEE_PREFIXES = [/^Paid to\s+/i, /^Received from\s+/i];
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+const PAYEE_PREFIXES = [/^Paid to\s+/i, /^Payment to\s+/i, /^Received from\s+/i];
 
 function isHeaderLine(line) {
   const fields = parseCsvLine(line).map((f) => f.trim());
   return HEADER.every((h, i) => fields[i] === h);
 }
 
-/** "Oct 03, 2026" → "2026-10-03", or null if unreadable. */
+/** "Oct 03, 2026" / "Sept 30, 2026" → "2026-10-03" / "2026-09-30", or null if unreadable. The
+ * month can be any 3+ letter prefix of its name in any case — PhonePe itself writes September
+ * as the 4-letter "Sept". */
 function parseDate(value) {
-  const m = /^([A-Z][a-z]{2}) (\d{1,2}), (\d{4})$/.exec(value.trim());
-  if (!m || !MONTHS[m[1]]) return null;
+  const m = /^([A-Za-z]{3,9})\.? (\d{1,2}), (\d{4})$/.exec(value.trim());
+  if (!m) return null;
+  const token = m[1].toLowerCase();
+  const month = MONTH_NAMES.findIndex((name) => name.startsWith(token)) + 1;
+  if (month === 0) return null;
   const day = Number(m[2]);
   if (day < 1 || day > 31) return null;
-  return `${m[3]}-${String(MONTHS[m[1]]).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return `${m[3]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 /** "09:09 am" / "12:15 am" / "05:53 pm" → 24h "HH:MM", or null if unreadable. */
@@ -65,11 +70,12 @@ export const phonepe = {
     const rows = [];
     let invalidCount = 0;
     for (const line of lines.slice(headerIndex + 1)) {
-      // The table ends at the first line that isn't shaped like a row (normally a blank line,
-      // but the disclaimer footer is prose either way); a row-shaped line with unreadable values
-      // is counted as invalid instead, so a damaged row is reported rather than silently dropped.
+      // The table ends at the first line that isn't shaped like a row: normally a blank line —
+      // which a spreadsheet app re-saving the file pads to ",,,,,,," — though the disclaimer
+      // footer is prose either way. A row-shaped line with unreadable values is counted as
+      // invalid instead, so a damaged row is reported rather than silently dropped.
       const fields = parseCsvLine(line);
-      if (fields.length < HEADER_FIELD_COUNT) break;
+      if (fields.length < HEADER_FIELD_COUNT || fields.every((f) => !f.trim())) break;
       const [dateField, timeField, details, txId, , typeField, , amountField] = fields;
       const date = parseDate(dateField);
       const time = parseTime(timeField);
