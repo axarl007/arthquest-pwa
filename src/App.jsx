@@ -19,6 +19,7 @@ import { QuestDetail } from './screens/QuestDetail.jsx';
 import { Settings } from './screens/Settings.jsx';
 import { Categories } from './screens/Categories.jsx';
 import { Pairing } from './screens/Pairing.jsx';
+import { ImportReview } from './screens/ImportReview.jsx';
 import { resolveTransactionSubject } from './domain/transactions.js';
 import { dueReminders } from './domain/reminders.js';
 import { todayIso } from './domain/format.js';
@@ -33,7 +34,7 @@ const TAB_SCREENS = { home: Home, transactions: Transactions, budget: Budget, qu
 // menu, 'pairing-direct' (opened straight from Home, skipping Settings) and 'main' itself both
 // close the whole settings subscreen.
 function settingsBackTarget(settings) {
-  if (settings === 'categories' || settings === 'pairing') return 'main';
+  if (settings === 'categories' || settings === 'pairing' || settings === 'import') return 'main';
   return null;
 }
 
@@ -49,7 +50,9 @@ export default function App() {
   // Subscreen state for Quests -> quest detail; cleared whenever we navigate away from it.
   const [questDetail, setQuestDetail] = useState(null); // null | { questId, autoRedeem? }
   // Subscreen state for Home -> Settings (-> Categories/Pairing); cleared whenever we navigate away.
-  const [settings, setSettings] = useState(null); // null | 'main' | 'categories' | 'pairing' | 'pairing-direct'
+  const [settings, setSettings] = useState(null); // null | 'main' | 'categories' | 'pairing' | 'pairing-direct' | 'import'
+  // The parsed statement (domain/importers parseStatement result) the 'import' subscreen reviews.
+  const [importDraft, setImportDraft] = useState(null);
   // null | { type: 'log', initialType?, initialCategoryId? } | { type: 'txActions', tx } |
   // { type: 'budgetActions' } | { type: 'addCategory', context, initialGroup } | { type: 'newQuest', initialName? }
   const [sheet, setSheet] = useState(null);
@@ -198,11 +201,24 @@ export default function App() {
             // visited — 'pairing' (opened via Settings' own "Pair a device" button) still backs out
             // to Settings main, matching every other subscreen's "return to where you came from".
             <Pairing onBack={() => setSettings(settingsBackTarget(settings))} nearby={nearby} />
+          ) : settings === 'import' && importDraft ? (
+            <ImportReview
+              draft={importDraft}
+              onBack={() => setSettings(settingsBackTarget(settings))}
+              onImported={() => {
+                setImportDraft(null);
+                navigateToTab('transactions');
+              }}
+            />
           ) : (
             <Settings
               onBack={() => setSettings(settingsBackTarget(settings))}
               onOpenCategories={() => setSettings('categories')}
               onOpenPairing={() => setSettings('pairing')}
+              onOpenImport={(draft) => {
+                setImportDraft(draft);
+                setSettings('import');
+              }}
               onAdjustIncomeSplit={() => {
                 setSettings(null);
                 setScreen('onboarding');

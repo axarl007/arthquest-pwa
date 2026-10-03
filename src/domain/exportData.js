@@ -45,6 +45,10 @@ function transactionToExport(t) {
     id: t.id, type: TX_TYPE_TO_EXPORT[t.type], amount: t.amount, date: t.date, createdAt: t.createdAt,
     categoryId: t.categoryId ?? null, incomeCategoryId: t.incomeCategoryId ?? null,
     description: t.description ?? '', isRedemption: t.isRedemption,
+    // Statement-import dedup key (ticket #36) — no Android column, same precedent as `color`.
+    // Only written when present so manual transactions keep Android's exact field set; dropping
+    // it on a restore would let the same statement be imported twice.
+    ...(t.externalId ? { externalId: t.externalId } : {}),
   };
 }
 
@@ -53,6 +57,7 @@ function transactionFromExport(t) {
     id: t.id, type: TX_TYPE_FROM_EXPORT[t.type], amount: t.amount, date: t.date, createdAt: t.createdAt,
     categoryId: t.categoryId ?? null, incomeCategoryId: t.incomeCategoryId ?? null,
     description: t.description ?? '', isRedemption: t.isRedemption,
+    ...(t.externalId ? { externalId: t.externalId } : {}),
   };
 }
 

@@ -91,6 +91,14 @@ describe('buildBackupJson / parseBackupJson round-trip', () => {
     expect(patch.categories.every((c) => c.archivedAt === null)).toBe(true);
   });
 
+  it('round-trips a statement-imported transaction\'s externalId, and omits the key for manual ones', () => {
+    const withImported = { ...state, transactions: [...state.transactions, { ...state.transactions[0], id: 't9', externalId: 'phonepe:T1' }] };
+    const parsed = JSON.parse(buildBackupJson(withImported));
+    expect(parsed.transactions[2].externalId).toBe('phonepe:T1');
+    expect('externalId' in parsed.transactions[0]).toBe(false);
+    expect(parseBackupJson(JSON.stringify(parsed)).transactions).toEqual(withImported.transactions);
+  });
+
   it('excludes tombstoned (deletedAt set) transactions from the backup', () => {
     const withDeleted = {
       ...state,
