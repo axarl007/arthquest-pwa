@@ -74,6 +74,42 @@ describe('phonepe importer', () => {
   });
 });
 
+describe('phonepe importer — spreadsheet-resaved export', () => {
+  // Redacted copy of a real export after a spreadsheet app re-saved it: unquoted fields, every
+  // line padded to 8 columns (blank lines become ",,,,,,,"), 4-letter "Sept", "2:18 PM" times,
+  // NB…/OLEX… transaction ids.
+  const SHEET = fs.readFileSync(path.join(import.meta.dirname, 'fixtures/phonepe-spreadsheet-sample.csv'), 'utf8');
+
+  it('reads every row, including 4-letter "Sept" dates, with nothing reported unreadable', () => {
+    expect(phonepe.detect(SHEET)).toBe(true);
+    const { rows, invalidCount } = phonepe.parse(SHEET);
+    expect(invalidCount).toBe(0);
+    expect(rows.map((r) => [r.date, r.time, r.amount, r.direction])).toEqual([
+      ['2026-10-03', '14:18', 1500, 'debit'],
+      ['2026-09-30', '17:58', 313.95, 'debit'],
+      ['2026-09-17', '17:08', 2497, 'debit'],
+      ['2026-09-14', '13:45', 10000, 'credit'],
+      ['2026-09-13', '19:42', 129, 'debit'],
+      ['2026-09-06', '00:13', 1019, 'debit'],
+      ['2026-09-04', '09:23', 40000, 'debit'],
+    ]);
+  });
+
+  it('keeps non-UPI ids and strips "Payment to" like "Paid to"', () => {
+    const { rows } = phonepe.parse(SHEET);
+    expect(rows[2]).toMatchObject({ externalId: 'phonepe:NB26091717075979900003', payee: 'Credit card bill paid XXXXXXXXXXXX0000' });
+    expect(rows[4]).toMatchObject({ externalId: 'phonepe:OLEX2609131942271282700005', payee: 'SPORTA TECHNOLOGIES PRIVATE LIMITED' });
+  });
+
+  it('accepts 3-letter, 4-letter and full month names in any case', () => {
+    const one = (d) => phonepe.parse(statement(`"${d}","10:00 am","Paid to A","T1","U1","DEBIT","X","10"`)).rows[0]?.date;
+    expect(one('Sep 01, 2026')).toBe('2026-09-01');
+    expect(one('September 01, 2026')).toBe('2026-09-01');
+    expect(one('JUNE 5, 2026')).toBe('2026-06-05');
+    expect(one('Septx 01, 2026')).toBeUndefined();
+  });
+});
+
 describe('parseStatement', () => {
   it('auto-detects the format', () => {
     const result = parseStatement(SAMPLE);
