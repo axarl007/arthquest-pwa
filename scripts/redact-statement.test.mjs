@@ -122,6 +122,12 @@ describe('redactStatement', () => {
     expect(new Set(text.split(' ')).size).toBe(50);
   });
 
+  it('keeps HDFC credit card structure (~|~ delimiters, Domestic/International, Cr) but fakes the name', () => {
+    const { text, report } = redact('Transaction type~|~Customer Name~|~Date~|~Description~|~Amt\nDomestic~|~RAVI KUMAR~|~05/10/2026 14:22:10~|~SWIGGY BANGALORE~|~1,234.00~|~Cr\n');
+    expect(text).toMatch(/^Transaction type~\|~Customer \w+~\|~Date~\|~Description~\|~Amt\nDomestic~\|~[A-Z]{4} [A-Z]{5}~\|~05\/10\/2026 14:22:10~\|~SWIGGY [A-Z]{9}~\|~[1-9],\d{3}\.\d{2}~\|~Cr\n$/);
+    expect(report.headerWordsReplaced.has('Name')).toBe(true);
+  });
+
   it('preserves CRLF line endings and a BOM', () => {
     const { text } = redact('﻿Date,Details,Amount\r\n01/10/2026,Foo,10\r\n');
     expect(text.startsWith('﻿Date,Details,Amount\r\n')).toBe(true);

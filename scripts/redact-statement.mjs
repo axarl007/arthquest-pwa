@@ -34,6 +34,7 @@ const KEEP_WORDS = new Set(
   closing opening debit debits credit credits dr cr withdrawal withdrawals deposit deposits type mode status
   total totals sr sl serial id utr rrn instrument category merchant payee beneficiary sender receiver
   account acct ac statement period from to duration summary page of generated on by for init br
+  domestic international rewards reward points point due minimum limit available outstanding
   upi neft imps rtgs ach nach ecs atm pos nfs cash card visa mastercard rupay emi interest charges charge fee
   fees gst tax tds reversal reversed refund refunded failed success successful pending cancelled
   paid received sent transfer transferred self payment payments recharge recharged autopay mandate
@@ -95,7 +96,7 @@ function protectedSpans(line) {
   return merged;
 }
 
-const FIELD_SPLIT = /[,\t;|]/;
+const FIELD_SPLIT = /[,\t;|~]/; // ~ and ~|~ are HDFC credit card exports
 const isHeaderCandidate = (line) => !/\p{N}/u.test(line) && line.split(FIELD_SPLIT).filter((f) => f.trim()).length >= 3;
 const spansHaveDate = (line, spans) => spans.some(([s, e, kind]) => kind === 'keep' && !/^\d{1,2}:\d{2}/.test(line.slice(s, e)));
 
